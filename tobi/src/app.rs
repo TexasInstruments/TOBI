@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, bail};
 
 use crate::board::{self, DetectedBoard};
+use crate::boot_source::{boot_target_identity, current_boot_target};
 use crate::custom_image::{
     CustomImage, custom_placeholder, is_custom_placeholder, scan_custom_images,
 };
@@ -15,12 +16,14 @@ use crate::device::{DeviceMode, InstallTarget, TargetKind, list_devices};
 use crate::installer::{InstallEvent, InstallRequest, RunMode, reboot_now, start_install};
 use crate::manifest::{self, Catalog, ImageEntry};
 use crate::memory::{MemoryCheck, check_image_memory};
+use crate::update::available_update;
 
 pub const TI_PROXY_URL: &str = "http://webproxy.ext.ti.com:80";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Screen {
     Welcome,
+    UpdatePrompt,
     ImageSelect,
     CustomImageSelect,
     TargetSelect,
@@ -29,6 +32,12 @@ pub enum Screen {
     Complete,
     Error,
     ProxyConfig,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UpdateChoice {
+    Install,
+    Skip,
 }
 
 #[derive(Clone, Debug)]
@@ -97,12 +106,19 @@ pub struct App {
     proxy_config_field: ProxyConfigField,
     proxy_mode: ProxyMode,
     screen: Screen,
+    update_checked: bool,
+    update_image: Option<ImageEntry>,
+    update_choice: UpdateChoice,
+    update_target: Option<InstallTarget>,
+    update_target_error: Option<String>,
+    update_target_identity: Option<String>,
     image_index: usize,
     custom_image_index: usize,
     target_index: usize,
     expanded_targets: BTreeSet<String>,
     active_image: Option<ImageEntry>,
     active_image_is_custom: bool,
+    active_image_is_update: bool,
     progress: Option<ProgressState>,
     install_started_at: Option<Instant>,
     success_completed_at: Option<Instant>,
@@ -149,12 +165,19 @@ impl App {
             proxy_mode: ProxyMode::Ti,
             proxy_url,
             screen: Screen::Welcome,
+            update_checked: false,
+            update_image: None,
+            update_choice: UpdateChoice::Install,
+            update_target: None,
+            update_target_error: None,
+            update_target_identity: None,
             image_index,
             custom_image_index: 0,
             target_index: 0,
             expanded_targets: BTreeSet::new(),
             active_image: None,
             active_image_is_custom: false,
+            active_image_is_update: false,
             progress: None,
             install_started_at: None,
             success_completed_at: None,
@@ -192,6 +215,26 @@ impl App {
         self.screen
     }
 
+    pub fn update_image(&self) -> Option<&ImageEntry> {
+        self.update_image.as_ref()
+    }
+
+    pub fn update_choice(&self) -> UpdateChoice {
+        self.update_choice
+    }
+
+    pub fn update_target(&self) -> Option<&InstallTarget> {
+        self.update_target.as_ref()
+    }
+
+    pub fn update_target_error(&self) -> Option<&str> {
+        self.update_target_error.as_deref()
+    }
+
+    pub fn is_tobi_update(&self) -> bool {
+        self.active_image_is_update
+    }
+
     pub fn image_index(&self) -> usize {
         self.image_index
     }
@@ -209,14 +252,16 @@ impl App {
     }
 
     pub fn selected_image(&self) -> Option<&ImageEntry> {
-        if matches!(
-            self.screen,
-            Screen::TargetSelect
-                | Screen::Confirm
-                | Screen::Installing
-                | Screen::Complete
-                | Screen::Error
-        ) {
+        if self.active_image_is_update
+            || matches!(
+                self.screen,
+                Screen::TargetSelect
+                    | Screen::Confirm
+                    | Screen::Installing
+                    | Screen::Complete
+                    | Screen::Error
+            )
+        {
             self.active_image
                 .as_ref()
                 .or_else(|| self.catalog.images.get(self.image_index))
@@ -231,6 +276,13 @@ impl App {
 
     pub fn selected_target(&self) -> Option<&InstallTarget> {
         self.devices.get(self.target_index)
+    }
+
+    pub fn boot_guide(&self) -> Option<&'static crate::boot_guide::BootGuide> {
+        if self.screen != Screen::Complete || self.selected_target()?.kind != TargetKind::Emmc {
+            return None;
+        }
+        crate::boot_guide::for_board(self.board.id.as_deref()?)
     }
 
     pub fn is_target_expanded(&self, target_id: &str) -> bool {
@@ -329,6 +381,7 @@ impl App {
 
     pub fn complete_auto_reboot_seconds(&self) -> Option<u64> {
         if !self.can_reboot_after_complete()
+            || self.active_image_is_update
             || self
                 .selected_target()
                 .is_some_and(|target| target.kind == TargetKind::Emmc)
@@ -355,6 +408,7 @@ impl App {
         self.screen = Screen::Welcome;
         self.active_image = None;
         self.active_image_is_custom = false;
+        self.active_image_is_update = false;
         self.progress = None;
         self.install_started_at = None;
         self.success_completed_at = None;
@@ -380,6 +434,7 @@ impl App {
 
     pub fn next(&mut self) {
         match self.screen {
+            Screen::UpdatePrompt => self.toggle_update_choice(),
             Screen::ImageSelect => {
                 self.image_index = next_index(self.image_index, self.catalog.images.len());
             }
@@ -397,6 +452,7 @@ impl App {
 
     pub fn previous(&mut self) {
         match self.screen {
+            Screen::UpdatePrompt => self.toggle_update_choice(),
             Screen::ImageSelect => {
                 self.image_index = previous_index(self.image_index, self.catalog.images.len());
             }
@@ -443,6 +499,7 @@ impl App {
 
     pub fn back(&mut self) {
         match self.screen {
+            Screen::UpdatePrompt => self.skip_update(),
             Screen::ImageSelect => {
                 self.screen = Screen::Welcome;
                 self.status = "Press Enter to continue.".to_string();
@@ -473,9 +530,12 @@ impl App {
     pub fn activate_selected(&mut self) {
         match self.screen {
             Screen::Welcome => {
-                self.screen = Screen::ImageSelect;
-                self.status = "Choose an operating system image.".to_string();
+                self.continue_to_image_list();
             }
+            Screen::UpdatePrompt => match self.update_choice {
+                UpdateChoice::Install => self.install_update(),
+                UpdateChoice::Skip => self.skip_update(),
+            },
             Screen::ImageSelect => {
                 let Some(image) = self.selected_catalog_image().cloned() else {
                     self.status = "No image selected.".to_string();
@@ -488,6 +548,7 @@ impl App {
                 } else {
                     self.active_image = Some(image);
                     self.active_image_is_custom = false;
+                    self.active_image_is_update = false;
                     self.screen = Screen::TargetSelect;
                     self.status = "Choose target media.".to_string();
                 }
@@ -500,6 +561,7 @@ impl App {
                 };
                 self.active_image = Some(custom_image.into_image_entry());
                 self.active_image_is_custom = true;
+                self.active_image_is_update = false;
                 self.screen = Screen::TargetSelect;
                 self.status = "Choose target media.".to_string();
             }
@@ -519,6 +581,106 @@ impl App {
         self.warning = None;
     }
 
+    fn continue_to_image_list(&mut self) {
+        if !self.update_checked {
+            self.update_checked = true;
+            self.update_image = available_update(&self.catalog, self.board.id.as_deref()).cloned();
+            if let Some(image) = &self.update_image {
+                self.update_choice = UpdateChoice::Install;
+                match current_boot_target(self.run_mode, &self.devices).and_then(|target| {
+                    let identity = boot_target_identity(self.run_mode, &target)?;
+                    Ok((target, identity))
+                }) {
+                    Ok((target, identity)) => {
+                        self.update_target = Some(target);
+                        self.update_target_identity = Some(identity);
+                    }
+                    Err(error) => {
+                        self.update_target_error = Some(format!("{error:#}"));
+                        self.update_choice = UpdateChoice::Skip;
+                    }
+                }
+                self.screen = Screen::UpdatePrompt;
+                self.status = format!(
+                    "TOBI {} is available. Reboot required after installation.",
+                    image.version
+                );
+                return;
+            }
+        }
+        self.screen = Screen::ImageSelect;
+        self.status = "Choose an operating system image.".to_string();
+    }
+
+    fn toggle_update_choice(&mut self) {
+        self.update_choice = match self.update_choice {
+            UpdateChoice::Install => UpdateChoice::Skip,
+            UpdateChoice::Skip => UpdateChoice::Install,
+        };
+    }
+
+    pub fn install_update(&mut self) {
+        if self.screen != Screen::UpdatePrompt {
+            return;
+        }
+        let Some(image) = self.update_image.clone() else {
+            self.skip_update();
+            return;
+        };
+        let Some(offered_target) = self.update_target.as_ref() else {
+            self.status = "Automatic update is unavailable because the current boot media could not be verified. Choose Skip to continue.".to_string();
+            return;
+        };
+        let target = match current_boot_target(self.run_mode, &self.devices) {
+            Ok(target) if target.path == offered_target.path => target,
+            Ok(_) => {
+                self.update_target = None;
+                self.update_target_error = Some("The boot media changed since the update prompt was shown. Restart TOBI before updating.".to_string());
+                self.update_choice = UpdateChoice::Skip;
+                return;
+            }
+            Err(error) => {
+                self.update_target = None;
+                self.update_target_error = Some(format!("{error:#}"));
+                self.update_choice = UpdateChoice::Skip;
+                return;
+            }
+        };
+        if boot_target_identity(self.run_mode, &target).ok().as_ref()
+            != self.update_target_identity.as_ref()
+        {
+            self.update_target = None;
+            self.update_target_identity = None;
+            self.update_target_error = Some("The boot card identity changed since the prompt was shown. Restart TOBI before updating.".to_string());
+            self.update_choice = UpdateChoice::Skip;
+            return;
+        }
+        let Some(index) = self
+            .devices
+            .iter()
+            .position(|device| device.path == target.path)
+        else {
+            self.status = "The current boot media is no longer available. Choose Skip.".to_string();
+            return;
+        };
+        self.target_index = index;
+        self.devices[index] = target;
+        self.active_image = Some(image);
+        self.active_image_is_custom = false;
+        self.active_image_is_update = true;
+        self.start_install();
+    }
+
+    pub fn skip_update(&mut self) {
+        if self.screen != Screen::UpdatePrompt {
+            return;
+        }
+        self.active_image = None;
+        self.active_image_is_update = false;
+        self.screen = Screen::ImageSelect;
+        self.status = "TOBI update skipped. Choose an operating system image.".to_string();
+    }
+
     pub fn start_proxy_config(&mut self) {
         self.warning = None;
         self.proxy_config_field = ProxyConfigField::Time;
@@ -530,8 +692,8 @@ impl App {
     }
 
     pub fn cancel_proxy_config(&mut self) {
-        self.screen = Screen::ImageSelect;
-        self.status = "Choose an operating system image.".to_string();
+        self.warning = None;
+        self.continue_to_image_list();
     }
 
     pub fn proxy_push(&mut self, ch: char) {
@@ -677,9 +839,8 @@ impl App {
             Ok(catalog) => {
                 self.proxy_url = proxy;
                 self.replace_catalog(catalog);
-                self.screen = Screen::ImageSelect;
-                self.status = "Online OS catalog loaded.".to_string();
                 self.warning = None;
+                self.continue_to_image_list();
             }
             Err(error) => {
                 self.warning = Some(format!(
@@ -761,13 +922,25 @@ impl App {
                     });
                 }
                 InstallEvent::Complete(message) => {
-                    self.status = message;
+                    self.status = if self.active_image_is_update {
+                        format!(
+                            "TOBI update installed.\n\n{message}\n\nReboot is required to start the updated TOBI. Boot from the updated media."
+                        )
+                    } else {
+                        message
+                    };
                     self.screen = Screen::Complete;
                     self.success_completed_at = Some(Instant::now());
                     keep_rx = false;
                 }
                 InstallEvent::Failed(message) => {
-                    self.status = message;
+                    self.status = if self.active_image_is_update {
+                        format!(
+                            "TOBI update failed.\n\n{message}\n\nThe selected media may be incomplete. Retry the installation or use a recovery SD card before booting it."
+                        )
+                    } else {
+                        message
+                    };
                     self.screen = Screen::Error;
                     self.success_completed_at = None;
                     keep_rx = false;
@@ -827,6 +1000,17 @@ impl App {
             return;
         };
 
+        if self.active_image_is_update
+            && let (Some(capacity), Some(required)) = (target.size_bytes, image.extract_size)
+            && capacity < required
+        {
+            self.screen = Screen::Error;
+            self.status = format!(
+                "The selected target is too small for the TOBI update: {capacity} bytes available, {required} bytes required. No data was written. Choose larger media and retry."
+            );
+            return;
+        }
+
         let memory = check_image_memory(&image);
         if memory.enough == Some(false) {
             self.screen = Screen::Error;
@@ -849,8 +1033,14 @@ impl App {
             source_total: image.image_download_size,
         });
         let reboot_after_install = self.run_mode == RunMode::Live
+            && !self.active_image_is_update
             && !matches!(target.kind, TargetKind::File | TargetKind::Emmc);
         self.install_rx = Some(start_install(InstallRequest {
+            update_boot_media: self.active_image_is_update,
+            boot_media_identity: self
+                .active_image_is_update
+                .then(|| self.update_target_identity.clone())
+                .flatten(),
             board_id: self.board.id.clone(),
             image,
             target,
@@ -877,6 +1067,7 @@ impl App {
             .unwrap_or(0);
         self.active_image = None;
         self.active_image_is_custom = false;
+        self.active_image_is_update = false;
     }
 }
 
@@ -1407,7 +1598,7 @@ mod tests {
     use super::*;
     use crate::board::{BoardSource, DetectedBoard};
     use crate::device::{InstallTarget, TargetKind};
-    use crate::manifest::{Catalog, ImageEntry, ImageFormat};
+    use crate::manifest::{Catalog, DeviceEntry, ImageEntry, ImageFormat};
 
     #[test]
     fn starts_on_welcome() {
@@ -1438,6 +1629,189 @@ mod tests {
         );
         app.activate_selected();
         assert_eq!(app.screen(), Screen::ImageSelect);
+    }
+
+    #[test]
+    fn newer_tobi_is_offered_after_welcome_before_os_list() {
+        let mut app = update_app();
+        assert_eq!(app.screen(), Screen::Welcome);
+        assert!(app.update_image().is_none());
+
+        app.activate_selected();
+
+        assert_eq!(app.screen(), Screen::UpdatePrompt);
+        assert_eq!(app.update_image().unwrap().version, "2099.1.1");
+        assert!(app.status().contains("Reboot required"));
+        assert!(app.install_rx.is_none());
+    }
+
+    #[test]
+    fn skip_goes_to_os_list_and_does_not_repeat_this_session() {
+        let mut app = update_app();
+        app.activate_selected();
+        app.next();
+        assert_eq!(app.update_choice(), UpdateChoice::Skip);
+        app.activate_selected();
+        assert_eq!(app.screen(), Screen::ImageSelect);
+        assert!(!app.is_tobi_update());
+        assert!(app.install_rx.is_none());
+
+        app.back();
+        app.activate_selected();
+        assert_eq!(app.screen(), Screen::ImageSelect);
+        app.start_over();
+        app.activate_selected();
+        assert_eq!(app.screen(), Screen::ImageSelect);
+    }
+
+    #[test]
+    fn update_install_automatically_uses_boot_sd_without_target_selection() {
+        let mut app = update_app();
+        app.activate_selected();
+        assert_eq!(app.selected_target().unwrap().kind, TargetKind::Emmc);
+        assert_eq!(
+            app.update_target().unwrap().path,
+            std::path::Path::new("/dev/mmcblk1")
+        );
+        app.install_update();
+        assert_eq!(app.screen(), Screen::Installing);
+        assert!(app.is_tobi_update());
+        assert_eq!(app.selected_image().unwrap().version, "2099.1.1");
+        assert_eq!(
+            app.selected_target().unwrap().path,
+            std::path::Path::new("/dev/mmcblk1")
+        );
+        assert!(app.install_rx.is_some());
+    }
+
+    #[test]
+    fn unverified_boot_media_disables_install_but_allows_skip() {
+        let mut app = update_app();
+        app.devices.retain(|device| device.kind != TargetKind::Sd);
+        app.activate_selected();
+        assert_eq!(app.screen(), Screen::UpdatePrompt);
+        assert_eq!(app.update_choice(), UpdateChoice::Skip);
+        assert!(app.update_target().is_none());
+        assert!(app.update_target_error().is_some());
+        app.install_update();
+        assert_eq!(app.screen(), Screen::UpdatePrompt);
+        assert!(app.install_rx.is_none());
+        app.skip_update();
+        assert_eq!(app.screen(), Screen::ImageSelect);
+    }
+
+    #[test]
+    fn changed_boot_card_identity_cannot_start_an_update() {
+        let mut app = update_app();
+        app.activate_selected();
+        app.update_target_identity = Some("different card".to_string());
+        app.install_update();
+        assert_eq!(app.screen(), Screen::UpdatePrompt);
+        assert!(app.update_target().is_none());
+        assert_eq!(app.update_choice(), UpdateChoice::Skip);
+        assert!(app.install_rx.is_none());
+        app.skip_update();
+        assert_eq!(app.screen(), Screen::ImageSelect);
+    }
+
+    #[test]
+    fn successful_proxy_catalog_reload_checks_for_update_before_os_list() {
+        let source = tempfile::NamedTempFile::new().unwrap();
+        serde_json::to_writer(source.as_file(), &update_catalog()).unwrap();
+        let mut app = App::new(
+            manifest::fallback_catalog(),
+            board(),
+            list_devices(DeviceMode::Mock, None).unwrap(),
+            RunMode::Mock,
+            false,
+            source.path().to_string_lossy().into_owned(),
+            None,
+            None,
+        );
+        app.start_proxy_config();
+        app.set_proxy_time_input("2026-10-02 12:00:00");
+        app.submit_proxy_config();
+        app.submit_proxy_config();
+
+        assert_eq!(app.screen(), Screen::UpdatePrompt);
+        assert_eq!(app.configured_proxy_url(), Some(TI_PROXY_URL));
+        assert!(app.warning().is_none());
+    }
+
+    #[test]
+    fn cancelling_offline_proxy_setup_allows_custom_images() {
+        let mut app = App::new(
+            manifest::fallback_catalog(),
+            board(),
+            targets(),
+            RunMode::Mock,
+            false,
+            "https://example.invalid/catalog.json".to_string(),
+            None,
+            None,
+        );
+        app.start_proxy_config();
+        app.warning = Some("offline".to_string());
+        app.cancel_proxy_config();
+        assert_eq!(app.screen(), Screen::ImageSelect);
+        assert!(app.update_image().is_none());
+        assert!(!app.has_warning());
+        assert_eq!(app.catalog.images.len(), 1);
+    }
+
+    #[test]
+    fn too_small_update_target_is_rejected_before_install_starts() {
+        let mut app = update_app();
+        app.devices
+            .iter_mut()
+            .find(|target| target.kind == TargetKind::Sd)
+            .unwrap()
+            .size_bytes = Some(1);
+        app.activate_selected();
+        app.install_update();
+        assert_eq!(app.screen(), Screen::Error);
+        assert!(app.status().contains("No data was written"));
+        assert!(app.install_rx.is_none());
+        assert!(!app.can_reboot_after_complete());
+    }
+
+    #[test]
+    fn successful_update_waits_for_manual_reboot_even_on_sd() {
+        let mut app = update_app();
+        app.activate_selected();
+        app.install_update();
+        app.run_mode = RunMode::Live;
+        app.screen = Screen::Installing;
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.install_rx = Some(rx);
+        tx.send(InstallEvent::Complete("Install succeeded.".to_string()))
+            .unwrap();
+        app.poll_install_events();
+
+        assert_eq!(app.screen(), Screen::Complete);
+        assert!(app.status().contains("Reboot is required"));
+        assert!(app.can_reboot_after_complete());
+        app.success_completed_at = Some(Instant::now() - Duration::from_secs(20));
+        assert_eq!(app.complete_auto_reboot_seconds(), None);
+    }
+
+    #[test]
+    fn failed_update_does_not_reboot_or_report_success() {
+        let mut app = update_app();
+        app.activate_selected();
+        app.install_update();
+        app.screen = Screen::Installing;
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.install_rx = Some(rx);
+        tx.send(InstallEvent::Failed("Download interrupted.".to_string()))
+            .unwrap();
+        app.poll_install_events();
+
+        assert_eq!(app.screen(), Screen::Error);
+        assert!(app.status().contains("TOBI update failed"));
+        assert!(app.status().contains("recovery SD card"));
+        assert!(app.success_completed_at.is_none());
+        assert!(!app.can_reboot_after_complete());
     }
 
     #[test]
@@ -1811,6 +2185,46 @@ mod tests {
         assert!(validate_utc_datetime_input("2026-02-29 00:00:00").is_err());
         assert!(validate_utc_datetime_input("2026-05-08T12:00:00").is_err());
         assert!(validate_utc_datetime_input("2019-05-08 12:00:00").is_err());
+    }
+
+    fn update_app() -> App {
+        App::new(
+            update_catalog(),
+            board(),
+            list_devices(DeviceMode::Mock, None).unwrap(),
+            RunMode::Mock,
+            false,
+            "../catalog.json".to_string(),
+            None,
+            None,
+        )
+    }
+
+    fn update_catalog() -> Catalog {
+        let mut catalog = catalog();
+        let detected = board();
+        let board_id = detected.id.unwrap();
+        catalog.devices.push(DeviceEntry {
+            id: board_id.clone(),
+            name: detected.name,
+            compatible: detected.compatible,
+        });
+        let mut update = catalog.images[0].clone();
+        update.id = "tobi-update".to_string();
+        update.name = "TOBI update".to_string();
+        update.category = Some("TOBI".to_string());
+        update.devices = vec![board_id];
+        update.recommended = false;
+        update.version = "2099.1.1".to_string();
+        update.channel = "stable".to_string();
+        update.url = "https://example.com/tobi.img.xz".to_string();
+        update.format = ImageFormat::ImgXz;
+        update.image_download_size = Some(512);
+        update.extract_size = Some(1024);
+        update.image_download_sha256 = Some("a".repeat(64));
+        update.extract_sha256 = Some("b".repeat(64));
+        catalog.images.push(update);
+        catalog
     }
 
     fn catalog() -> Catalog {

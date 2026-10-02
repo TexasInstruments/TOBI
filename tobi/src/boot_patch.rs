@@ -226,7 +226,7 @@ fn patch_installed_boot_media_linux(
         detect_boot_patch_style(&mount_dir, "") == Some(BootPatchStyle::TobiRecovery);
     let mut report = if boot_partition == EmmcBootPartition::Boot0 && !recovery_layout {
         BootPatchReport::warning(
-            "BeaglePlay boot0 bootstrap requires a recognized TOBI recovery image",
+            "eMMC boot0 bootstrap requires a recognized TOBI recovery image",
             vec!["The installed image was written, but its SPL was not automatically prepared for eMMC boot.".to_string()],
         )
     } else {
@@ -256,10 +256,8 @@ fn patch_installed_boot_media_linux(
             }
             Err(error) => {
                 report.details.push(format!("Details: {error:#}"));
-                report = BootPatchReport::warning(
-                    "BeaglePlay boot0 bootstrap is incomplete",
-                    report.details,
-                );
+                report =
+                    BootPatchReport::warning("eMMC boot0 bootstrap is incomplete", report.details);
             }
         }
     }
@@ -385,7 +383,12 @@ fn tobi_recovery_uenv(original: &str) -> String {
         content = set_uenv_value(&content, key, value);
     }
     if !recovery_environment_intact || uenv_value(&content, "uenvcmd").is_none() {
-        content = set_uenv_value(&content, "uenvcmd", TOBI_RECOVERY_UENVCMD);
+        let recovery_command = if uenv_value(&content, "tobi_set_boot_source").is_some() {
+            format!("run tobi_set_boot_source; {TOBI_RECOVERY_UENVCMD}")
+        } else {
+            TOBI_RECOVERY_UENVCMD.to_string()
+        };
+        content = set_uenv_value(&content, "uenvcmd", &recovery_command);
         content = remove_uenv_key(&content, "get_rd_mmc");
     }
     if uenv_value(&content, "optargs").is_none() {
@@ -1228,6 +1231,30 @@ mod tests {
         );
         assert!(uenv_value(&restored, "get_rd_mmc").is_none());
         assert!(!dir.path().join("extlinux").exists());
+    }
+
+    #[test]
+    fn emmc_recovery_retains_boot_card_identity_for_future_updates() {
+        let original = include_str!("../../meta-tobi/recipes-bsp/bootfiles/files/uEnv.txt");
+        let patched = tobi_recovery_uenv(original);
+        assert_eq!(uenv_value(&patched, "mmcdev"), Some("0"));
+        assert_eq!(uenv_value(&patched, "bootpart"), Some("0:1"));
+        for key in ["tobi_set_boot_source", "uenvcmd"] {
+            assert_eq!(uenv_value(&patched, key), uenv_value(original, key));
+        }
+        assert!(
+            uenv_value(&patched, "uenvcmd")
+                .unwrap()
+                .contains("run tobi_set_boot_source")
+        );
+
+        let missing_command = remove_uenv_key(original, "uenvcmd");
+        let repaired = tobi_recovery_uenv(&missing_command);
+        assert!(
+            uenv_value(&repaired, "uenvcmd")
+                .unwrap()
+                .starts_with("run tobi_set_boot_source;")
+        );
     }
 
     #[test]

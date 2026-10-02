@@ -19,6 +19,7 @@ use crate::boot_patch::{
     BootPatchReport, BootPatchStatus, EmmcBootPartition, patch_installed_boot_media,
     patch_installed_boot_media_with_boot_partition, target_needs_boot_patch,
 };
+use crate::boot_source::{boot_target_identity, current_boot_target};
 use crate::device::InstallTarget;
 use crate::manifest::{ImageEntry, ImageFormat};
 use crate::memory::ensure_image_memory;
@@ -36,6 +37,8 @@ pub enum RunMode {
 
 #[derive(Clone, Debug)]
 pub struct InstallRequest {
+    pub update_boot_media: bool,
+    pub boot_media_identity: Option<String>,
     pub image: ImageEntry,
     pub board_id: Option<String>,
     pub target: InstallTarget,
@@ -117,6 +120,14 @@ fn run_live_install(request: &InstallRequest, tx: &Sender<InstallEvent>) -> anyh
     if request.image.url.starts_with("mock://") {
         bail!("mock images cannot be written in live mode");
     }
+    // Every physical-media install shares a lock across framebuffer and serial
+    // processes, so an ordinary OS write cannot race an automatic TOBI update.
+    let install_lock_path = if request.target.kind == crate::device::TargetKind::File {
+        std::env::temp_dir().join("tobi-file-install.lock")
+    } else {
+        Path::new("/run/tobi-install.lock").to_path_buf()
+    };
+    let _install_lock = lock_install(&install_lock_path)?;
     ensure_image_memory(&request.image)?;
     log_memory_snapshot("live install: start");
 
@@ -174,13 +185,46 @@ fn write_image_once(
     let hashing_source = HashingReader::new(source);
     let mut decoded = decoder_for_format(request.image.format, hashing_source)?;
 
+    let target = if request.update_boot_media {
+        // Open without truncation, then verify this retained descriptor before
+        // writing. A replaced device node must never turn an update into a file write.
+        OpenOptions::new()
+            .write(true)
+            .open(&request.target.path)
+            .context("failed to open the current boot media for update")?
+    } else {
+        open_target(&request.target.path)?
+    };
+
+    if request.update_boot_media {
+        let current = current_boot_target(RunMode::Live, std::slice::from_ref(&request.target))
+            .context("current boot media could not be verified before writing the update")?;
+        if current.path != request.target.path {
+            bail!("boot media changed before the update started; no data was written");
+        }
+        let expected = request
+            .boot_media_identity
+            .as_ref()
+            .context("TOBI update is missing the original boot card identity")?;
+        if boot_target_identity(RunMode::Live, &current)? != *expected {
+            bail!("the boot card was replaced since the update prompt; no data was written");
+        }
+        let required = request
+            .image
+            .extract_size
+            .context("TOBI update has no extracted size")?;
+        let capacity = opened_update_capacity(&target, &current.path)?;
+        if capacity < required {
+            bail!("current boot media is too small for the TOBI update; no data was written");
+        }
+    }
+
     tx.send(InstallEvent::Phase(format!(
         "Writing {} to {}",
         request.image.name,
         request.target.path.display()
     )))?;
 
-    let target = open_target(&request.target.path)?;
     let mut writer = BufWriter::with_capacity(WRITE_BUFFER_SIZE, target);
     let mut output_hash = Sha256::new();
     let total = request.image.extract_size;
@@ -258,6 +302,90 @@ fn write_image_once(
     Ok(written)
 }
 
+#[cfg(target_os = "linux")]
+fn opened_update_capacity(file: &File, path: &Path) -> anyhow::Result<u64> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+    let opened = file
+        .metadata()
+        .context("cannot inspect the opened update device")?;
+    let current = fs::metadata(path).context("the update device is no longer available")?;
+    if !opened.file_type().is_block_device()
+        || opened.rdev() != current.rdev()
+        || opened.dev() != current.dev()
+        || opened.ino() != current.ino()
+    {
+        bail!(
+            "the opened update device does not match the verified boot media; no data was written"
+        );
+    }
+    let mut capacity = 0_u64;
+    // linux/fs.h defines BLKGETSIZE64 as _IOR(0x12, 114, size_t).
+    // The libc crate does not expose this request on the supported ARM64/x86 builds.
+    const BLKGETSIZE64: libc::c_ulong = (2 << 30)
+        | ((std::mem::size_of::<libc::size_t>() as libc::c_ulong) << 16)
+        | (0x12 << 8)
+        | 114;
+    if unsafe { libc::ioctl(file.as_raw_fd(), BLKGETSIZE64, &mut capacity) } != 0 {
+        return Err(io::Error::last_os_error())
+            .context("cannot read the opened boot media capacity");
+    }
+    Ok(capacity)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn opened_update_capacity(_file: &File, _path: &Path) -> anyhow::Result<u64> {
+    bail!("automatic boot-media updates require the Linux RAM environment");
+}
+
+#[cfg(unix)]
+fn lock_install(path: &Path) -> anyhow::Result<InstallLock> {
+    use std::os::fd::AsRawFd;
+
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
+        .context("failed to open the TOBI installation lock")?;
+    // Keep this guard alive through the install to coordinate the HDMI/serial UIs.
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err(io::Error::last_os_error())
+            .context("another TOBI installation may already be running. No data was written");
+    }
+    Ok(InstallLock { file: lock })
+}
+
+#[cfg(not(unix))]
+fn lock_install(_path: &Path) -> anyhow::Result<InstallLock> {
+    bail!("automatic boot-media updates are only supported on Linux");
+}
+
+struct InstallLock {
+    file: File,
+}
+
+#[cfg(unix)]
+impl Drop for InstallLock {
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+        // Explicitly unlock even if a helper process briefly inherited the file
+        // descriptor. Closing the descriptor alone can leave the lock held.
+        unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+    }
+}
+
+fn emmc_boot_partition_for_board(board_id: Option<&str>) -> EmmcBootPartition {
+    match board_id {
+        // These boards enter the eMMC hardware boot path. Only tiboot3.bin is
+        // placed in Boot0; TOBI's patched SPL loads later stages from the FAT
+        // filesystem in the user area.
+        Some("beagleplay" | "sk-am69") => EmmcBootPartition::Boot0,
+        _ => EmmcBootPartition::UserArea,
+    }
+}
+
 fn patch_boot_media_after_install(
     request: &InstallRequest,
     tx: &Sender<InstallEvent>,
@@ -277,10 +405,12 @@ fn patch_boot_media_after_install(
         source_total: None,
     })?;
 
-    let report = if request.board_id.as_deref() == Some("beagleplay") {
-        patch_installed_boot_media_with_boot_partition(&request.target, EmmcBootPartition::Boot0)
-    } else {
-        patch_installed_boot_media(&request.target)
+    let report = match emmc_boot_partition_for_board(request.board_id.as_deref()) {
+        EmmcBootPartition::Boot0 => patch_installed_boot_media_with_boot_partition(
+            &request.target,
+            EmmcBootPartition::Boot0,
+        ),
+        EmmcBootPartition::UserArea => patch_installed_boot_media(&request.target),
     };
     tx.send(InstallEvent::Progress {
         phase: "Patching boot media".to_string(),
@@ -316,15 +446,22 @@ fn complete_successful_live_install(
     log_memory_snapshot("live install: complete");
 
     let reboot_line = if request.target.kind == crate::device::TargetKind::Emmc {
-        if request.board_id.as_deref() == Some("beagleplay") {
-            "\n\nPower off, remove the SD card, then power on with USR released to boot from eMMC."
+        if let Some(guide) = request
+            .board_id
+            .as_deref()
+            .and_then(crate::boot_guide::for_board)
+        {
+            format!(
+                "\n\nPower off before changing boot settings.\n{}\nGuide: {}",
+                guide.summary, guide.url
+            )
         } else {
-            "\n\nPower off, remove the SD card, and select MMCSD filesystem boot on eMMC port 0 using the board manual before powering on."
+            "\n\nPower off and use the exact board manual to select the installed media. Do not copy another board's boot-switch settings.".to_string()
         }
     } else if request.reboot_after_install {
-        "\n\nReady to reboot into the installed image."
+        "\n\nReady to reboot into the installed image.".to_string()
     } else {
-        ""
+        String::new()
     };
     let boot_patch_line = boot_patch
         .map(|report| format!("\n\n{}", report.final_message()))
@@ -794,6 +931,43 @@ mod tests {
     use super::*;
     use crate::device::{InstallTarget, TargetKind};
     use crate::manifest::{ImageEntry, ImageFormat};
+
+    #[cfg(unix)]
+    #[test]
+    fn update_lock_prevents_two_terminal_updates_and_releases_on_close() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("update.lock");
+        let first = lock_install(&path).unwrap();
+        assert!(lock_install(&path).is_err());
+        drop(first);
+        lock_install(&path).expect("update lock released after closing first descriptor");
+    }
+
+    #[test]
+    fn automatic_update_respects_disabled_write_permission() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("existing.img");
+        fs::write(&target, b"unchanged").unwrap();
+        let mut request = request_for_success_message(TargetKind::File);
+        request.update_boot_media = true;
+        request.allow_write = false;
+        request.target.path = target.clone();
+        let (tx, _rx) = mpsc::channel();
+        let error = run_live_install(&request, &tx).unwrap_err();
+        assert!(error.to_string().contains("without --allow-write"));
+        assert_eq!(fs::read(target).unwrap(), b"unchanged");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn automatic_update_rejects_an_opened_regular_file_without_changing_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("fake-device");
+        fs::write(&path, b"unchanged").unwrap();
+        let file = OpenOptions::new().write(true).open(&path).unwrap();
+        assert!(opened_update_capacity(&file, &path).is_err());
+        assert_eq!(fs::read(path).unwrap(), b"unchanged");
+    }
     use std::fs;
     use std::net::{TcpListener, TcpStream};
     use xz2::write::XzEncoder as XzWriter;
@@ -811,6 +985,8 @@ mod tests {
         let digest = hex::encode(hash.finalize());
 
         let request = InstallRequest {
+            update_boot_media: false,
+            boot_media_identity: None,
             image: ImageEntry {
                 id: "raw".to_string(),
                 name: "raw".to_string(),
@@ -856,6 +1032,8 @@ mod tests {
     #[test]
     fn live_mode_requires_allow_write() {
         let request = InstallRequest {
+            update_boot_media: false,
+            boot_media_identity: None,
             image: ImageEntry {
                 id: "test".to_string(),
                 name: "test".to_string(),
@@ -933,6 +1111,53 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         complete_successful_live_install(123, &request, &tx, None).expect("complete");
         assert!(receive_complete_message(rx).contains("USR released"));
+    }
+
+    #[test]
+    fn hardware_boot_boards_select_boot0_bootstrap() {
+        for board_id in ["beagleplay", "sk-am69"] {
+            assert_eq!(
+                emmc_boot_partition_for_board(Some(board_id)),
+                EmmcBootPartition::Boot0,
+                "{board_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn other_boards_keep_user_area_boot() {
+        for board_id in [
+            None,
+            Some("sk-am62b"),
+            Some("sk-am62-lp"),
+            Some("sk-am62-sip"),
+            Some("sk-am62p-lp"),
+            Some("sk-am62a-lp"),
+            Some("tmds62levm"),
+            Some("tmds64evm"),
+            Some("sk-am64b"),
+            Some("sk-am68"),
+            Some("unknown-board"),
+        ] {
+            assert_eq!(
+                emmc_boot_partition_for_board(board_id),
+                EmmcBootPartition::UserArea,
+                "{board_id:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sk_am69_completion_describes_hardware_boot_switches() {
+        let mut request = request_for_success_message(TargetKind::Emmc);
+        request.board_id = Some("sk-am69".to_string());
+        let (tx, rx) = mpsc::channel();
+        complete_successful_live_install(123, &request, &tx, None).expect("complete");
+        let complete = receive_complete_message(rx);
+        assert!(complete.contains("SW2: 1 OFF, 2 ON, 3 ON"));
+        assert!(complete.contains("switch 4 unchanged"));
+        assert!(complete.contains("/boards/sk-am69/"));
+        assert!(!complete.contains("MMCSD filesystem boot"));
     }
 
     #[test]
@@ -1025,6 +1250,8 @@ mod tests {
 
     fn request_for_success_message(kind: TargetKind) -> InstallRequest {
         InstallRequest {
+            update_boot_media: false,
+            boot_media_identity: None,
             image: ImageEntry {
                 id: "test".to_string(),
                 name: "test image".to_string(),

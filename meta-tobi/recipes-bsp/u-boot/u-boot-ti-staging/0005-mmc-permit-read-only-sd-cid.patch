@@ -1,0 +1,24 @@
+From: TOBI Maintainers <tobi@example.invalid>
+Subject: [PATCH] mmc: permit read-only CID inspection on SD cards
+
+TOBI must identify the exact card which supplied its recovery initramfs
+before offering to overwrite that boot medium. A partition UUID cannot
+identify cloned SD and eMMC images reliably. Permit reading the already
+cached SD CID through the existing MMC register command. Keep the current
+SD rejection for every other register, including CSD and EXT_CSD.
+
+Upstream-Status: Inappropriate [TOBI boot source identification]
+
+diff --git a/cmd/mmc.c b/cmd/mmc.c
+--- a/cmd/mmc.c
++++ b/cmd/mmc.c
+@@ -1159,7 +1159,8 @@
+ 		return CMD_RET_FAILURE;
+ 	}
+ 
+-	if (IS_SD(mmc)) {
++	/* CID is cached for both SD and eMMC; this read cannot alter media. */
++	if (IS_SD(mmc) && strcmp(argv[2], "cid")) {
+ 		printf("SD registers are not supported\n");
+ 		return CMD_RET_FAILURE;
+ 	}

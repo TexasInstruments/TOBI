@@ -4,7 +4,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Wrap};
 
-use crate::app::{App, ObstacleKind, ProxyConfigField, ProxyMode, RunnerObstacle, Screen};
+use crate::app::{
+    App, ObstacleKind, ProxyConfigField, ProxyMode, RunnerObstacle, Screen, UpdateChoice,
+};
 use crate::custom_image::CustomImage;
 use crate::device::{InstallTarget, format_bytes};
 use crate::installer::RunMode;
@@ -39,6 +41,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_header(frame, app, chunks[0]);
     match app.screen() {
         Screen::Welcome => render_welcome(frame, app, chunks[1]),
+        Screen::UpdatePrompt => render_update_prompt(frame, app, chunks[1]),
         Screen::ImageSelect => render_image_select(frame, app, chunks[1]),
         Screen::CustomImageSelect => render_custom_image_select(frame, app, chunks[1]),
         Screen::TargetSelect => render_target_select(frame, app, chunks[1]),
@@ -52,6 +55,145 @@ pub fn render(frame: &mut Frame, app: &App) {
     if app.has_warning() {
         render_warning(frame, app, root);
     }
+}
+
+pub fn render_boot_guide_qr(frame: &mut Frame, app: &App) {
+    let Some(guide) = app.boot_guide() else {
+        render(frame, app);
+        return;
+    };
+    let root = frame.area();
+    frame.render_widget(Clear, root);
+    frame.render_widget(
+        Block::default().style(Style::default().fg(TI_WHITE).bg(Color::Black)),
+        root,
+    );
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(2),
+        ])
+        .split(root);
+    frame.render_widget(
+        Paragraph::new(format!("{} boot guide", guide.name))
+            .style(Style::default().fg(TI_TEAL).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center),
+        chunks[0],
+    );
+    if let Some(lines) = qr::render_qr(&guide.url, chunks[1].width, chunks[1].height) {
+        let width = lines
+            .iter()
+            .map(|line| line.chars().count())
+            .max()
+            .unwrap_or(0) as u16;
+        let height = lines.len() as u16;
+        let qr_area = Rect::new(
+            chunks[1].x + chunks[1].width.saturating_sub(width) / 2,
+            chunks[1].y + chunks[1].height.saturating_sub(height) / 2,
+            width,
+            height,
+        );
+        frame.render_widget(
+            Paragraph::new(lines.join("\n"))
+                .style(Style::default().fg(Color::Black).bg(Color::White)),
+            qr_area,
+        );
+    } else {
+        frame.render_widget(
+            Paragraph::new("QR does not fit this terminal. Enlarge it or open the link below.")
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: false }),
+            chunks[1],
+        );
+    }
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(guide.url.as_str()),
+            Line::from("G / Esc / Enter returns to boot instructions"),
+        ])
+        .style(Style::default().fg(TI_TEAL))
+        .alignment(Alignment::Center),
+        chunks[2],
+    );
+}
+
+fn render_update_prompt(frame: &mut Frame, app: &App, area: Rect) {
+    let popup = centered_rect(92, 94, area);
+    frame.render_widget(Clear, popup);
+    let block = panel_block(" TOBI Update Available ");
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(5), Constraint::Length(3)])
+        .split(inner);
+    let latest = app
+        .update_image()
+        .map(|image| image.version.as_str())
+        .unwrap_or("unknown");
+    let mut lines = vec![
+        Line::from(format!(
+            "Running: {}   Latest: {}",
+            env!("CARGO_PKG_VERSION"),
+            latest
+        )),
+        Line::from(format!("Board: {}", app.board().name)),
+    ];
+    if let Some(target) = app.update_target() {
+        lines.push(Line::from(format!("Boot media: {}", target.name)));
+        lines.push(Line::from(format!("Path: {}", target.path.display())));
+    } else {
+        lines.push(Line::from(Span::styled(
+            format!(
+                "Install unavailable: {}",
+                app.update_target_error()
+                    .unwrap_or("The boot media could not be verified.")
+            ),
+            Style::default().fg(TI_RED),
+        )));
+    }
+    lines.extend([
+        Line::from(""),
+        Line::from(Span::styled(
+            "A reboot is required to run the updated TOBI.",
+            Style::default().fg(TI_RED).add_modifier(Modifier::BOLD),
+        )),
+        Line::from("Install erases ALL data on this device, including OS data."),
+        Line::from(if app.update_target().is_some() {
+            "Choose Install to start updating this device immediately."
+        } else {
+            "Choose Skip to continue to the OS list."
+        }),
+    ]);
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), chunks[0]);
+    let install_item = if app.update_target().is_some() {
+        ListItem::new(" Install update")
+    } else {
+        ListItem::new(" Install update (unavailable)").style(Style::default().fg(Color::DarkGray))
+    };
+    let choices = List::new([install_item, ListItem::new(" Skip and show OS list")])
+        .highlight_style(
+            Style::default()
+                .fg(TI_WHITE)
+                .bg(
+                    if app.update_target().is_none() && app.update_choice() == UpdateChoice::Install
+                    {
+                        Color::DarkGray
+                    } else {
+                        TI_RED
+                    },
+                )
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(">");
+    let mut state = ListState::default();
+    state.select(Some(match app.update_choice() {
+        UpdateChoice::Install => 0,
+        UpdateChoice::Skip => 1,
+    }));
+    frame.render_stateful_widget(choices, chunks[1], &mut state);
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
@@ -805,6 +947,14 @@ fn render_result(
     title: &str,
     prompt: Vec<Line<'static>>,
 ) {
+    if let Some(guide) = app.boot_guide() {
+        render_board_guide_result(frame, app, area, color, guide);
+        return;
+    }
+    if app.is_tobi_update() {
+        render_update_result(frame, app, area, color);
+        return;
+    }
     let popup = centered_rect(72, 45, area);
     frame.render_widget(Clear, popup);
     let mut lines = vec![
@@ -831,9 +981,162 @@ fn render_result(
     );
 }
 
+fn render_board_guide_result(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    color: Color,
+    guide: &crate::boot_guide::BootGuide,
+) {
+    let popup = centered_rect(96, 100, area);
+    frame.render_widget(Clear, popup);
+    let block = panel_block(" Install Complete: Board Boot Instructions ");
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let show_inline_qr = inner.width >= 110 && inner.height >= 27;
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(if show_inline_qr {
+            vec![Constraint::Percentage(60), Constraint::Percentage(40)]
+        } else {
+            vec![Constraint::Percentage(100)]
+        })
+        .split(inner);
+    let mut lines = vec![
+        Line::from(Span::styled(
+            if app.is_tobi_update() {
+                "TOBI update installed. Reboot required."
+            } else {
+                "Install succeeded. Follow the board boot instructions below."
+            },
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        )),
+        Line::from("Power off before changing boot settings."),
+        Line::from(format!("Board: {}", guide.name)),
+    ];
+    if let Some(target) = app.selected_target() {
+        lines.push(Line::from(format!(
+            "Written media: {}",
+            target.path.display()
+        )));
+    }
+    lines.push(Line::from(guide.summary.as_str()));
+    lines.extend(
+        guide
+            .steps
+            .iter()
+            .enumerate()
+            .map(|(index, step)| Line::from(format!("{}. {}", index + 1, step))),
+    );
+    lines.push(Line::from(""));
+    lines.extend(
+        app.status()
+            .lines()
+            .map(|line| Line::from(line.to_string())),
+    );
+    let text_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(3), Constraint::Length(3)])
+        .split(chunks[0]);
+    frame.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: false }),
+        text_chunks[0],
+    );
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled("Guide with images:", label_style())),
+            Line::from(guide.url.as_str()),
+            Line::from(if app.can_reboot_after_complete() {
+                "G guide QR | Power-cycle as instructed | Enter reboot | R restart"
+            } else {
+                "G guide QR | Mock install only | Enter/R starts over"
+            }),
+        ]),
+        text_chunks[1],
+    );
+    if show_inline_qr {
+        render_qr_panel(
+            frame,
+            chunks[1],
+            "Board boot guide",
+            &guide.url,
+            "Scan for switch images and boot instructions.",
+        );
+    }
+}
+
+fn render_update_result(frame: &mut Frame, app: &App, area: Rect, color: Color) {
+    let popup = centered_rect(92, 100, area);
+    frame.render_widget(Clear, popup);
+    let succeeded = app.screen() == Screen::Complete;
+    let mut lines = vec![Line::from(Span::styled(
+        if succeeded {
+            "TOBI update installed"
+        } else {
+            "TOBI update failed"
+        },
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    ))];
+    if succeeded {
+        lines.push(Line::from(
+            "Reboot required. Power-cycle to run updated TOBI.",
+        ));
+        lines.push(Line::from("Boot from the updated media below."));
+    } else {
+        lines.push(Line::from(
+            "Do not boot media that may be partially written.",
+        ));
+        lines.push(Line::from(
+            "Retry the update or use a recovery SD card before booting.",
+        ));
+    }
+    if let Some(target) = app.selected_target() {
+        lines.push(Line::from(format!("Media: {}", target.name)));
+        lines.push(Line::from(format!("Path: {}", target.path.display())));
+        if succeeded && target.kind == crate::device::TargetKind::Emmc {
+            lines.push(Line::from(
+                if app.board().id.as_deref() == Some("beagleplay") {
+                    "Power off, remove SD, then power on with USR released."
+                } else {
+                    "Power off. Use the exact board manual to select installed media."
+                },
+            ));
+        }
+    }
+    lines.push(Line::from(
+        if succeeded && app.can_reboot_after_complete() {
+            "Press Enter to reboot, R to start over, or Q to quit."
+        } else {
+            "Press Enter or R to start over, or Q to quit."
+        },
+    ));
+    lines.push(Line::from(""));
+    lines.extend(
+        app.status()
+            .lines()
+            .map(|line| Line::from(line.to_string())),
+    );
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block(" TOBI Update Result "))
+            .wrap(Wrap { trim: false }),
+        popup,
+    );
+}
+
 fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     let keys = match app.screen() {
+        Screen::Complete if app.boot_guide().is_some() => {
+            if app.can_reboot_after_complete() {
+                "G guide QR | Power-cycle as instructed | Enter reboot | R start over | Q quit".to_string()
+            } else {
+                "G guide QR | Enter/R start over | Q quit".to_string()
+            }
+        }
         Screen::Welcome => "Enter continue | Q quit".to_string(),
+        Screen::UpdatePrompt => {
+            "Arrows choose | Enter select | I install | S/Esc skip | Q quit".to_string()
+        }
         Screen::Installing => "installing | Space/Up/W jump | Ctrl-C quit".to_string(),
         Screen::ImageSelect => {
             "Up/Down choose image | Enter continue | R refresh targets | Q quit".to_string()
@@ -1265,7 +1568,7 @@ fn render_qr_panel(frame: &mut Frame, area: Rect, title: &str, url: &str, captio
         lines.extend(qr_lines.into_iter().map(|line| {
             Line::from(Span::styled(
                 line,
-                Style::default().fg(TI_WHITE).bg(Color::Black),
+                Style::default().fg(Color::Black).bg(Color::White),
             ))
         }));
         lines.push(Line::from(""));
@@ -1297,7 +1600,7 @@ fn append_qr_lines(lines: &mut Vec<Line<'static>>, area: Rect, url: &str) {
     lines.extend(qr_lines.into_iter().map(|line| {
         Line::from(Span::styled(
             line,
-            Style::default().fg(TI_WHITE).bg(Color::Black),
+            Style::default().fg(Color::Black).bg(Color::White),
         ))
     }));
 }
@@ -1305,6 +1608,169 @@ fn append_qr_lines(lines: &mut Vec<Line<'static>>, area: Rect, url: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rendered_text(app: &App, width: u16, height: u16) -> String {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, app)).unwrap();
+        let buffer = terminal.backend().buffer();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn update_prompt_keeps_choices_and_warnings_visible_on_standard_terminals() {
+        let app = crate::tests::update_prompt_app();
+        for (width, height) in [(80, 24), (128, 40)] {
+            let output = rendered_text(&app, width, height);
+            for text in [
+                env!("CARGO_PKG_VERSION"),
+                "2099.1.1",
+                "SK-AM62P-LP",
+                "SD card media",
+                "/dev/mmcblk1",
+                "reboot is required",
+                "erases ALL data on this device",
+                "including OS data",
+                "Install update",
+                "Skip and show OS list",
+            ] {
+                assert!(
+                    output.contains(text),
+                    "missing {text:?} at {width}x{height}:\n{output}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn update_prompt_explains_why_install_is_unavailable() {
+        let app = crate::tests::update_prompt_app_without_target();
+        assert!(app.update_target().is_none());
+        let output = rendered_text(&app, 80, 24);
+        for text in [
+            "Install unavailable",
+            "Install update (unavailable)",
+            "Skip and show OS list",
+        ] {
+            assert!(output.contains(text), "missing {text:?}:\n{output}");
+        }
+    }
+
+    #[test]
+    fn completed_mock_update_keeps_reboot_and_media_visible() {
+        let mut app = crate::tests::update_prompt_app();
+        app.install_update();
+        assert_eq!(app.screen(), Screen::Installing);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.screen() == Screen::Installing && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            app.poll_install_events();
+        }
+        assert_eq!(app.screen(), Screen::Complete, "{}", app.status());
+        assert_eq!(app.complete_auto_reboot_seconds(), None);
+        for (width, height) in [(80, 24), (128, 40)] {
+            let output = rendered_text(&app, width, height);
+            for text in [
+                "TOBI update installed",
+                "Reboot required",
+                "Power-cycle",
+                "Boot from the updated media",
+                "SD card media",
+                "/dev/mmcblk1",
+                "Press Enter or R to start over",
+            ] {
+                assert!(
+                    output.contains(text),
+                    "missing {text:?} at {width}x{height}:\n{output}"
+                );
+            }
+            assert!(!output.contains("auto reboot"));
+        }
+    }
+
+    #[test]
+    fn failed_update_keeps_recovery_and_media_visible() {
+        let mut devices =
+            crate::device::list_devices(crate::device::DeviceMode::Mock, None).unwrap();
+        devices
+            .iter_mut()
+            .find(|target| target.id == "mock-sd")
+            .unwrap()
+            .size_bytes = Some(1);
+        let mut app = crate::tests::update_prompt_app_with_devices(devices);
+        app.install_update();
+        assert_eq!(app.screen(), Screen::Error);
+        for (width, height) in [(80, 24), (128, 40)] {
+            let output = rendered_text(&app, width, height);
+            for text in [
+                "TOBI update failed",
+                "Do not boot media",
+                "recovery SD card",
+                "SD card media",
+                "/dev/mmcblk1",
+                "Press Enter or R to start over",
+            ] {
+                assert!(
+                    output.contains(text),
+                    "missing {text:?} at {width}x{height}:\n{output}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn emmc_completion_keeps_power_off_guide_link_and_controls_visible() {
+        let app = crate::tests::completed_mock_emmc_app();
+        let guide = app.boot_guide().expect("AM62P boot guide");
+        for (width, height) in [(80, 24), (128, 40)] {
+            let output = rendered_text(&app, width, height);
+            for text in [
+                "Power off",
+                guide.name.as_str(),
+                guide.url.as_str(),
+                "Written media: /dev/mmcblk0",
+                "G guide QR",
+                "Enter/R starts over",
+            ] {
+                assert!(
+                    output.contains(text),
+                    "missing {text:?} at {width}x{height}:\n{output}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn board_guide_qr_fits_standard_terminal_with_url_and_return_hint() {
+        let app = crate::tests::completed_mock_emmc_app();
+        let guide = app.boot_guide().unwrap();
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_boot_guide_qr(frame, &app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let output = (0..24)
+            .map(|y| (0..80).map(|x| buffer[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(output.contains(&guide.url), "{output}");
+        assert!(output.contains("G / Esc / Enter returns"), "{output}");
+        assert!(!output.contains("does not fit"), "{output}");
+        assert!(
+            buffer.content.iter().any(|cell| cell.bg == Color::White
+                && cell.fg == Color::Black
+                && cell.symbol().contains(['█', '▀', '▄'])),
+            "QR modules should be black on white"
+        );
+    }
 
     #[test]
     fn runner_jump_keeps_ground_and_obstacles_fixed() {

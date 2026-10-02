@@ -1,6 +1,8 @@
 mod app;
 mod board;
+mod boot_guide;
 mod boot_patch;
+mod boot_source;
 mod custom_image;
 mod device;
 mod installer;
@@ -8,6 +10,7 @@ mod manifest;
 mod memory;
 mod qr;
 mod ui;
+mod update;
 
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
@@ -173,6 +176,157 @@ mod tests {
         assert_eq!(args.mode, CliRunMode::Mock);
         assert!(args.test_proxy_setup);
     }
+
+    pub(crate) fn update_prompt_app() -> App {
+        update_prompt_app_with_devices(device::list_devices(DeviceMode::Mock, None).unwrap())
+    }
+
+    pub(crate) fn update_prompt_app_without_target() -> App {
+        update_prompt_app_with_devices(Vec::new())
+    }
+
+    pub(crate) fn update_prompt_app_with_devices(devices: Vec<device::InstallTarget>) -> App {
+        let mut catalog: manifest::Catalog =
+            serde_json::from_str(include_str!("../../catalog.json"))
+                .expect("release catalog should parse");
+        let image = catalog
+            .images
+            .iter_mut()
+            .find(|image| {
+                image.category_label() == "TOBI"
+                    && image.devices.iter().any(|device| device == "sk-am62p-lp")
+            })
+            .expect("release catalog should contain a TOBI image for AM62P");
+        image.version = "2099.1.1".to_string();
+        image.name = "TOBI 2099.1.1 SK-AM62P-LP".to_string();
+        let board = board::DetectedBoard {
+            id: Some("sk-am62p-lp".to_string()),
+            name: "SK-AM62P-LP".to_string(),
+            compatible: vec!["ti,am62pxx-evm".to_string()],
+            source: board::BoardSource::Mock,
+        };
+        let mut app = App::new(
+            catalog,
+            board,
+            devices,
+            RunMode::Mock,
+            false,
+            "catalog.json".to_string(),
+            None,
+            None,
+        );
+        app.activate_selected();
+        assert_eq!(app.screen(), Screen::UpdatePrompt);
+        app
+    }
+
+    pub(crate) fn completed_mock_emmc_app() -> App {
+        let mut app = update_prompt_app();
+        app.skip_update();
+        app.activate_selected();
+        assert_eq!(app.screen(), Screen::TargetSelect);
+        assert_eq!(
+            app.selected_target().unwrap().kind,
+            device::TargetKind::Emmc
+        );
+        app.activate_selected();
+        app.activate_selected();
+        assert_eq!(app.screen(), Screen::Installing);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while app.screen() == Screen::Installing && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+            app.poll_install_events();
+        }
+        assert_eq!(app.screen(), Screen::Complete, "{}", app.status());
+        app
+    }
+
+    #[test]
+    fn serial_emmc_completion_prints_the_matching_board_guide() {
+        let app = completed_mock_emmc_app();
+        let guide = app.boot_guide().expect("AM62P eMMC boot guide");
+        let mut output = Vec::new();
+        serial_render_to(&app, &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains(&guide.name));
+        assert!(output.contains(&guide.summary));
+        assert!(output.contains(&guide.url));
+        for step in &guide.steps {
+            assert!(output.contains(step), "missing step {step:?}");
+        }
+        assert!(!output.contains("G guide QR"));
+    }
+
+    #[test]
+    fn serial_update_install_commands_start_simulation_on_current_boot_media() {
+        for command in ["install", "I", "1", ""] {
+            let mut app = update_prompt_app();
+            assert!(!serial_handle_command(&mut app, command));
+            assert_eq!(app.screen(), Screen::Installing, "command {command:?}");
+            assert!(app.is_tobi_update());
+            assert_eq!(app.selected_target().unwrap().id, "mock-sd");
+            assert_eq!(app.selected_image().unwrap().version, "2099.1.1");
+        }
+    }
+
+    #[test]
+    fn serial_update_skip_commands_continue_to_os_list() {
+        for command in ["skip", "S", "2", "back", "esc"] {
+            let mut app = update_prompt_app();
+            assert!(!serial_handle_command(&mut app, command));
+            assert_eq!(app.screen(), Screen::ImageSelect, "command {command:?}");
+            assert!(!app.is_tobi_update());
+        }
+    }
+
+    #[test]
+    fn serial_update_enter_uses_highlighted_choice() {
+        let mut app = update_prompt_app();
+        serial_handle_command(&mut app, "n");
+        assert_eq!(app.update_choice(), app::UpdateChoice::Skip);
+        serial_handle_command(&mut app, "");
+        assert_eq!(app.screen(), Screen::ImageSelect);
+    }
+
+    #[test]
+    fn serial_update_unverified_boot_media_disables_install() {
+        let mut app = update_prompt_app_without_target();
+        assert!(app.update_target().is_none());
+        assert!(app.update_target_error().is_some());
+        assert_eq!(app.update_choice(), app::UpdateChoice::Skip);
+        serial_handle_command(&mut app, "install");
+        assert_eq!(app.screen(), Screen::UpdatePrompt);
+        assert!(app.progress().is_none());
+        let mut output = Vec::new();
+        serial_render_to(&app, &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("Install update (unavailable)"));
+        assert!(output.contains(app.update_target_error().unwrap()));
+        serial_handle_command(&mut app, "");
+        assert_eq!(app.screen(), Screen::ImageSelect);
+    }
+
+    #[test]
+    fn serial_update_prompt_explains_reboot_and_storage_overwrite() {
+        let app = update_prompt_app();
+        let mut output = Vec::new();
+        serial_render_to(&app, &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        for text in [
+            env!("CARGO_PKG_VERSION"),
+            "2099.1.1",
+            "SK-AM62P-LP",
+            "SD card media",
+            "/dev/mmcblk1",
+            "reboot is required",
+            "entire current boot storage device",
+            "existing OS data",
+            "Install update",
+            "Skip and show OS list",
+        ] {
+            assert!(output.contains(text), "missing {text:?}: {output}");
+        }
+    }
 }
 
 fn setup_terminal(
@@ -208,15 +362,23 @@ fn run_app(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     mut app: App,
 ) -> anyhow::Result<()> {
+    let mut boot_guide_qr_visible = false;
     loop {
         app.poll_install_events();
         app.tick_runner();
         app.refresh_system_status_if_due();
         app.auto_reboot_if_due();
+        if app.boot_guide().is_none() {
+            boot_guide_qr_visible = false;
+        }
         terminal.draw(|frame| {
             let area = frame.area();
             app.set_terminal_size(area.width, area.height);
-            ui::render(frame, &app)
+            if boot_guide_qr_visible {
+                ui::render_boot_guide_qr(frame, &app);
+            } else {
+                ui::render(frame, &app);
+            }
         })?;
 
         if event::poll(Duration::from_millis(80))? {
@@ -227,6 +389,20 @@ fn run_app(
                 continue;
             }
 
+            if boot_guide_qr_visible
+                && matches!(
+                    key.code,
+                    KeyCode::Enter
+                        | KeyCode::Esc
+                        | KeyCode::Backspace
+                        | KeyCode::Char('g')
+                        | KeyCode::Char('G')
+                )
+            {
+                boot_guide_qr_visible = false;
+                continue;
+            }
+
             match key.code {
                 KeyCode::Char('q') | KeyCode::Char('Q') if app.can_quit() => {
                     return Ok(());
@@ -234,6 +410,7 @@ fn run_app(
                 KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
                     return Ok(());
                 }
+                _ if boot_guide_qr_visible => {}
                 _ if app.has_warning() => match key.code {
                     KeyCode::Enter | KeyCode::Esc => app.dismiss_warning(),
                     KeyCode::Char('p') | KeyCode::Char('P') => app.start_proxy_config(),
@@ -249,6 +426,20 @@ fn run_app(
                     KeyCode::Char(ch) => app.proxy_push(ch),
                     _ => {}
                 },
+                _ if app.screen() == Screen::UpdatePrompt => match key.code {
+                    KeyCode::Enter => app.activate_selected(),
+                    KeyCode::Char('i') | KeyCode::Char('I') => app.install_update(),
+                    KeyCode::Char('s') | KeyCode::Char('S') | KeyCode::Esc | KeyCode::Backspace => {
+                        app.skip_update()
+                    }
+                    KeyCode::Up | KeyCode::Left | KeyCode::Char('k') | KeyCode::Char('K') => {
+                        app.previous();
+                    }
+                    KeyCode::Down | KeyCode::Right | KeyCode::Char('j') | KeyCode::Char('J') => {
+                        app.next();
+                    }
+                    _ => {}
+                },
                 _ if app.screen() == Screen::Installing => match key.code {
                     KeyCode::Char(' ') | KeyCode::Up | KeyCode::Char('w') | KeyCode::Char('W') => {
                         app.runner_jump_or_restart();
@@ -258,6 +449,9 @@ fn run_app(
                 _ if matches!(app.screen(), Screen::Complete | Screen::Error) => match key.code {
                     KeyCode::Enter => app.activate_selected(),
                     KeyCode::Char('r') | KeyCode::Char('R') => app.start_over(),
+                    KeyCode::Char('g') | KeyCode::Char('G') if app.boot_guide().is_some() => {
+                        boot_guide_qr_visible = true;
+                    }
                     _ => {}
                 },
                 KeyCode::Right if app.screen() == Screen::TargetSelect => app.expand_target(),
@@ -294,12 +488,15 @@ fn run_serial_app(mut app: App) -> anyhow::Result<()> {
     let mut last_render = Instant::now();
 
     loop {
+        let previous_screen = app.screen();
         app.poll_install_events();
         app.refresh_system_status_if_due();
         app.auto_reboot_if_due();
 
         let installing = app.screen() == Screen::Installing;
-        if installing && last_render.elapsed() >= Duration::from_secs(1) {
+        if app.screen() != previous_screen
+            || (installing && last_render.elapsed() >= Duration::from_secs(1))
+        {
             serial_render(&app)?;
             last_render = Instant::now();
         }
@@ -339,6 +536,13 @@ fn serial_handle_command(app: &mut App, line: &str) -> bool {
                 app.activate_selected();
             }
         }
+        Screen::UpdatePrompt => match lower.as_str() {
+            "install" | "i" | "1" => app.install_update(),
+            "skip" | "s" | "2" | "esc" | "escape" | "b" | "back" => app.skip_update(),
+            "left" => app.previous(),
+            "right" => app.next(),
+            _ => serial_handle_list_command(app, &lower),
+        },
         Screen::ImageSelect => {
             if serial_select_index(
                 command,
@@ -472,6 +676,10 @@ fn serial_handle_list_command(app: &mut App, command: &str) {
 
 fn serial_render(app: &App) -> anyhow::Result<()> {
     let mut out = io::stdout();
+    serial_render_to(app, &mut out)
+}
+
+fn serial_render_to(app: &App, out: &mut impl Write) -> anyhow::Result<()> {
     write!(out, "\r\n\r\n=== TOBI {:?} ===\r\n", app.screen())?;
 
     if app.has_warning() {
@@ -489,6 +697,61 @@ fn serial_render(app: &App) -> anyhow::Result<()> {
     match app.screen() {
         Screen::Welcome => {
             write!(out, "\r\nPress Enter to choose an image, or Q to quit.\r\n")?;
+        }
+        Screen::UpdatePrompt => {
+            if let Some(image) = app.update_image() {
+                write!(
+                    out,
+                    "\r\nTOBI update available for {}\r\nRunning version: {}\r\nLatest version: {}\r\n",
+                    app.board().name,
+                    env!("CARGO_PKG_VERSION"),
+                    image.version
+                )?;
+            }
+            if let Some(target) = app.update_target() {
+                write!(
+                    out,
+                    "Current boot media: {}\r\nPath: {}\r\n",
+                    target.name,
+                    target.path.display()
+                )?;
+            } else {
+                write!(
+                    out,
+                    "\r\nAutomatic installation unavailable: {}\r\n",
+                    app.update_target_error()
+                        .unwrap_or("The current boot media could not be verified.")
+                )?;
+            }
+            write!(
+                out,
+                "\r\nA reboot is required to run the updated TOBI.\r\nInstalling rewrites the entire current boot storage device, including existing OS data.\r\n"
+            )?;
+            let install_label = if app.update_target().is_some() {
+                write!(
+                    out,
+                    "Choose Install to begin updating this device immediately.\r\n"
+                )?;
+                "Install update"
+            } else {
+                write!(out, "Choose Skip to continue to the OS list.\r\n")?;
+                "Install update (unavailable)"
+            };
+            for (choice, number, label) in [
+                (app::UpdateChoice::Install, 1, install_label),
+                (app::UpdateChoice::Skip, 2, "Skip and show OS list"),
+            ] {
+                let marker = if app.update_choice() == choice {
+                    ">"
+                } else {
+                    " "
+                };
+                write!(out, "{} {}. {}\r\n", marker, number, label)?;
+            }
+            write!(
+                out,
+                "\r\nType INSTALL/I/1 or SKIP/S/2. Enter selects, N/P moves, B skips.\r\n"
+            )?;
         }
         Screen::ImageSelect => {
             write!(out, "\r\nImages:\r\n")?;
@@ -569,11 +832,31 @@ fn serial_render(app: &App) -> anyhow::Result<()> {
             )?;
         }
         Screen::Complete | Screen::Error => {
+            if let Some(guide) = app.boot_guide() {
+                write!(
+                    out,
+                    "\r\nBoot instructions for {}\r\nPower off before changing boot settings.\r\n{}\r\n",
+                    guide.name, guide.summary
+                )?;
+                for (index, step) in guide.steps.iter().enumerate() {
+                    write!(out, "{}. {}\r\n", index + 1, step)?;
+                }
+                write!(out, "Guide with images: {}\r\n", guide.url)?;
+            }
             write!(out, "\r\n{}\r\n", app.status())?;
-            write!(
-                out,
-                "\r\nPress Enter to continue, R to restart, or Q to quit.\r\n"
-            )?;
+            if app.can_reboot_after_complete()
+                && (app.is_tobi_update() || app.boot_guide().is_some())
+            {
+                write!(
+                    out,
+                    "\r\nPress Enter to reboot now, R to start over, or Q to quit.\r\n"
+                )?;
+            } else {
+                write!(
+                    out,
+                    "\r\nPress Enter to continue, R to restart, or Q to quit.\r\n"
+                )?;
+            }
         }
         Screen::ProxyConfig => {
             if let Some(warning) = app.warning() {

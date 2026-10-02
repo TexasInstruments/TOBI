@@ -22,17 +22,31 @@ The catalog also includes Armbian community downloads for supported boards that 
 
 ## Install From A Release Image
 
-Download the image for your board from [GitHub Releases](https://github.com/TexasInstruments/TOBI/releases). Release `2026.10.2` uses tag `v2026.10.2` and filenames such as `TOBI-2026.10.2-SK-AM62P-LP.img.xz` and `TOBI-2026.10.2-BeaglePlay.img.xz`; the board names match the table above. Download `SHA256SUMS` as well and verify the image checksum before writing it. The release contains the eleven board images and that checksum file.
+Download the image for your board from [TOBI 2026.10.2 revision 2](https://github.com/TexasInstruments/TOBI/releases/tag/v2026.10.2-r2). This release uses tag `v2026.10.2-r2` and filenames such as `TOBI-2026.10.2-SK-AM62P-LP.img.xz` and `TOBI-2026.10.2-BeaglePlay.img.xz`; the board names match the table above. Download `SHA256SUMS` as well and verify the image checksum before writing it. The release contains the eleven board images and that checksum file.
+
+Revision 2 adds automatic-update prompts, illustrated boot guides, post-flash QR codes, and SK-AM69 Boot0 preparation. Its app version remains `2026.10.2`; the original `v2026.10.2` release predates these changes. Install revision 2 from SD to acquire these features on a board running an older TOBI binary.
 
 Write the image to a microSD card with an image-writing tool, select the board's SD boot mode, and power on with a debug UART connected. TOBI runs from RAM; select an OS and the target eMMC, then confirm the installation.
 
 There are eleven board labels and ten Yocto machine builds. SK-AM64B and TMDS64EVM share `am64xx-evm`; their release filenames identify the intended board separately. The SK-AM62-SIP image uses the AM6254ATL BSP configuration.
 
-The eMMC install uses the user data area and its filesystem boot partition. After a successful installation on a board with configurable boot switches, power off, remove the SD card, select **MMCSD, port 0, filesystem (FS) mode**, and power on. The mode called **eMMC boot** in TI's ROM documentation instead reads the separate Boot0/Boot1 hardware partitions. These modes require different bootloader layouts; follow the [TI filesystem eMMC boot guide](https://software-dl.ti.com/processor-sdk-linux/esd/AM62X/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html) and the boot-mode pin mapping in your board's user guide and SoC TRM. Check the physical switch numbers, the printed ON direction, and the board revision before changing switches.
+After a successful eMMC installation, TOBI shows the detected board's switch settings and power-on instructions. Press **G** to display a QR code for the illustrated board guide; serial consoles print the same instructions and URL. Power off before changing switches or removing the recovery SD card, then reconnect power. Instructions remain available locally without a network connection.
 
-BeaglePlay uses a USR button rather than configurable boot DIP switches. Its released-button straps select eMMC Boot0; pressing USR during power-on selects SD filesystem boot. When installing a TOBI recovery image to BeaglePlay's eMMC, TOBI provisions only the first-stage `tiboot3.bin` loader in Boot0 and verifies it by reading it back. The remaining bootloader stages and recovery files load from the user-area filesystem. After success, power off, remove the SD card, and power on with USR released. Third-party images still need compatible filesystem bootloaders; keep the TOBI SD card available for recovery. See [BeaglePlay's boot configuration](https://docs.beagleboard.org/books/beaglebone-cookbook/11misc/misc.html#the-play-s-boot-sequence).
+The [board-guide source](docs/README.md) builds a GitHub Pages site at `https://texasinstruments.github.io/TOBI/`. A repository administrator must enable Pages with GitHub Actions before the QR destinations are live. The application and website share `docs/boot-guide.json`, so board IDs, switch numbering, settings, and URLs stay consistent. The diagrams list **printed switch numbers in ascending order**, with ON meaning toward the physical switch's ON marking. The guide records official references and revision caveats, including incorrect switch labels in some AM62B/SIP manual figures.
+
+TOBI writes partitioned images to the eMMC user data area. AM62 starter kits, TMDS62LEVM, and TMDS64EVM can select **MMCSD, port 0, filesystem (FS) mode** for this layout. Hardware **eMMC boot** reads Boot0/Boot1 instead and requires a separate bootstrap. SK-AM64B and SK-AM68 have no onboard eMMC; their guides say so explicitly. See the [TI filesystem boot explanation](https://software-dl.ti.com/processor-sdk-linux/esd/AM62X/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html) and each board guide's manual references.
+
+BeaglePlay uses a USR button rather than configurable boot DIP switches. Its released-button straps select eMMC Boot0; pressing USR during power-on selects SD filesystem boot. SK-AM69's stock switches also require hardware eMMC boot instead of direct filesystem ROM boot. For TOBI recovery images on either board, TOBI provisions only the first-stage `tiboot3.bin` loader in Boot0 and verifies it by reading it back; the remaining stages load from the user-area filesystem. After success, remove the SD card while powered off. Leave BeaglePlay's USR released; on SK-AM69 set SW2.1 OFF, SW2.2 ON and SW2.3 ON, leaving SW2.4 unchanged. Third-party images require compatible bootloaders and cannot use this recovery-only bootstrap automatically. See [BeaglePlay's boot configuration](https://docs.beagleboard.org/books/beaglebone-cookbook/11misc/misc.html#the-play-s-boot-sequence) and [TI's AM69-SK eMMC preparation](https://software-dl.ti.com/jacinto7/esd/processor-sdk-linux-am69/10_01_08_01/exports/docs/linux/How_to_Guides/Host/Program_MMC_boot_media.html).
 
 If eMMC boot preparation reports a warning, TOBI stops with an error even if the image write completed. Correct the reported problem before trying to boot, and keep the SD recovery card available. Successful eMMC installs wait on the completion screen without an automatic reboot countdown; Enter still provides a manual reboot, while the instructions call for powering off to remove the SD card and set boot mode. A successful download and write does not establish that every board, image, and boot-switch combination has been tested on hardware.
+
+## TOBI Updates
+
+After the welcome screen and any proxy setup, TOBI checks the loaded catalog for a newer stable TOBI release for the detected board. The update prompt shows the running and available versions, the current boot media, and **Install** / **Skip** choices.
+
+**Install** rewrites the current boot media with the new board image, erasing all data on that device. TOBI verifies the boot source before writing and waits for a manual reboot after installation; the running RAM environment keeps its old version until reboot. **Skip** opens the OS list and suppresses another update prompt for the rest of that session.
+
+New images pass the boot card's hardware CID from U-Boot to Linux so SD and eMMC copies can be distinguished even when their partition UUIDs match. Older boot environments can use a unique `root=PARTUUID` as a fallback. If the boot media cannot be identified uniquely, the system is not running from RAM, or that media is mounted, automatic installation is unavailable and Skip remains usable. This feature is available in images built from this change; previously published TOBI binaries cannot acquire it merely by refreshing their catalog.
 
 ## Layout
 
@@ -41,6 +55,7 @@ catalog.json  board definitions and downloadable-image catalog
 tobi/         standalone Rust TUI application
 meta-tobi/    Yocto layer for packaging TOBI into a RAM installer image
 yocto/        build notes and helper scripts for TI Processor SDK Linux
+docs/         shared board boot instructions and GitHub Pages site builder
 ```
 
 ## Hosted Catalog

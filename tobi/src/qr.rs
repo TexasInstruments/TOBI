@@ -10,11 +10,7 @@ pub fn render_qr(data: &str, max_width: u16, max_height: u16) -> Option<Vec<Stri
         .quiet_zone(true)
         .build();
 
-    let lines = rendered
-        .lines()
-        .map(str::to_string)
-        .filter(|line| !line.trim().is_empty())
-        .collect::<Vec<_>>();
+    let lines = rendered.lines().map(str::to_string).collect::<Vec<_>>();
 
     if lines.is_empty() {
         return None;
@@ -46,5 +42,26 @@ mod tests {
     #[test]
     fn returns_none_when_viewport_is_too_small() {
         assert!(render_qr("https://www.ti.com/sitara", 8, 4).is_none());
+    }
+
+    #[test]
+    fn preserves_the_white_quiet_zone_around_all_four_sides() {
+        let lines = render_qr(
+            "https://texasinstruments.github.io/TOBI/boards/sk-am62p-lp/",
+            80,
+            40,
+        )
+        .unwrap();
+        assert!(lines[..2].iter().all(|line| line.trim().is_empty()));
+        assert!(
+            lines[lines.len() - 2..]
+                .iter()
+                .all(|line| line.trim().is_empty())
+        );
+        assert!(
+            lines
+                .iter()
+                .all(|line| line.starts_with("    ") && line.ends_with("    "))
+        );
     }
 }

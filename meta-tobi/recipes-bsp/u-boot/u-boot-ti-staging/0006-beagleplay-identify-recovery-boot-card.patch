@@ -1,0 +1,46 @@
+From: TOBI Maintainers <tobi@example.invalid>
+Subject: [PATCH] beagleplay: identify the card supplying TOBI recovery
+
+The direct TOBI Recovery menu path bypasses uEnv.txt and boots entirely
+from RAM. Pass the CID of the card which actually supplied the recovery
+files into the Linux command line, so automatic updates can identify the
+same SD card or eMMC without relying on Linux device numbering or cloned
+partition UUIDs. Clear prior values and publish the marker only when all
+four read-only CID requests succeed. Enable the existing register command
+in the BeaglePlay application processor configuration.
+
+Upstream-Status: Inappropriate [TOBI boot source identification]
+
+diff --git a/configs/am62x_beagleplay_a53_defconfig b/configs/am62x_beagleplay_a53_defconfig
+--- a/configs/am62x_beagleplay_a53_defconfig
++++ b/configs/am62x_beagleplay_a53_defconfig
+@@ -57,6 +57,7 @@
+ CONFIG_CMD_GPIO_READ=y
+ CONFIG_CMD_I2C=y
+ CONFIG_CMD_MMC=y
++CONFIG_CMD_MMC_REG=y
+ CONFIG_CMD_EFIDEBUG=y
+ CONFIG_CMD_PMIC=y
+ CONFIG_CMD_REGULATOR=y
+diff --git a/board/beagle/beagleplay/tobi.env b/board/beagle/beagleplay/tobi.env
+--- a/board/beagle/beagleplay/tobi.env
++++ b/board/beagle/beagleplay/tobi.env
+@@ -102,6 +102,18 @@
+ 		if load mmc ${tobi_recovery_dev}:${tobi_recovery_part}
+ 			${fdt_addr_r} ${tobi_recovery_dir}/dtb/${fdtfile}; then
+ 			setenv bootargs ${tobi_recovery_bootargs};
++			setenv tobi_cid0;
++			setenv tobi_cid1;
++			setenv tobi_cid2;
++			setenv tobi_cid3;
++			if mmc dev ${tobi_recovery_dev} &&
++			   mmc reg read cid 0 tobi_cid0 &&
++			   mmc reg read cid 1 tobi_cid1 &&
++			   mmc reg read cid 2 tobi_cid2 &&
++			   mmc reg read cid 3 tobi_cid3; then
++				setenv bootargs ${bootargs}
++					tobi.boot_cid=${tobi_cid0}:${tobi_cid1}:${tobi_cid2}:${tobi_cid3};
++			fi;
+ 			echo Starting TOBI Recovery from mmc${tobi_recovery_dev}...;
+ 			booti ${kernel_addr_r}
+ 				${ramdisk_addr_r}:${tobi_recovery_size} ${fdt_addr_r};

@@ -1,0 +1,826 @@
+{
+  "schema_version": 1,
+  "boards": [
+    {
+      "board_id": "sk-am62p-lp",
+      "name": "SK-AM62P-LP",
+      "summary": "SW4: 1, 2, 7 ON; all others OFF. SW5: all OFF.",
+      "steps": [
+        "Disconnect power and remove the recovery SD card.",
+        "SW4: set 1, 2, 7 ON; set 3, 4, 5, 6, 8 OFF.",
+        "SW5: set switches 1 through 8 OFF.",
+        "Check the printed ON direction, then reconnect power."
+      ],
+      "url": "https://texasinstruments.github.io/TOBI/boards/sk-am62p-lp/",
+      "emmc_status": "filesystem",
+      "mode_title": "eMMC \u00b7 filesystem boot",
+      "switches": [
+        {
+          "bank": "SW4",
+          "states": [
+            "ON",
+            "ON",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "ON",
+            "OFF"
+          ],
+          "bits": [
+            "B0",
+            "B1",
+            "B2",
+            "B3",
+            "B4",
+            "B5",
+            "B6",
+            "B7"
+          ]
+        },
+        {
+          "bank": "SW5",
+          "states": [
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF"
+          ],
+          "bits": [
+            "B8",
+            "B9",
+            "B10",
+            "B11",
+            "B12",
+            "B13",
+            "B14",
+            "B15"
+          ]
+        }
+      ],
+      "bootmode_hex": "0x0043",
+      "verified_on": "2026-10-02",
+      "notes": [
+        "Settings select MMCSD port 0, filesystem mode, 25 MHz reference and no backup boot (BOOTMODE 0x0043). B0 through B15 in the diagram denote BOOTMODE signals.",
+        "Switch positions use ascending printed numbers. Move toward the printed ON mark for ON (logic 1); OFF is logic 0.",
+        "Table2-22 lists port1 for the SD MMCSD row; eMMC-UDA needs port0 per official AM62Px SDK UDA procedure, so SW5.2 OFF.",
+        "The similarly named hardware eMMC boot mode reads Boot0/Boot1. It does not use this filesystem boot layout.",
+        "TOBI recovery loaders support the filesystem stage handoff. Third-party bootloaders must also support their installed eMMC layout."
+      ],
+      "sources": [
+        {
+          "title": "AM62P SK Evaluation Module User's Guide \u00b7 Rev B, August 2026",
+          "url": "https://www.ti.com/lit/ug/spruja2b/spruja2b.pdf"
+        },
+        {
+          "title": "How to flash eMMC and boot from eMMC UDA",
+          "url": "https://software-dl.ti.com/processor-sdk-linux/esd/AM62PX/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html"
+        },
+        {
+          "title": "Official switch wiring and numbering \u00b7 page 45",
+          "url": "https://www.ti.com/lit/ug/spruja2b/spruja2b.pdf#page=45"
+        }
+      ],
+      "recovery_steps": [
+        "Disconnect power and reinsert the TOBI recovery SD card.",
+        "Restore the SD filesystem boot settings from the linked board manual.",
+        "Reconnect power and correct any image or boot-preparation error before retrying."
+      ]
+    },
+    {
+      "board_id": "sk-am62-lp",
+      "name": "SK-AM62-LP",
+      "summary": "SW3: 1, 2, 7 ON; all others OFF. SW4: all OFF.",
+      "steps": [
+        "Disconnect power and remove the recovery SD card.",
+        "SW3: set 1, 2, 7 ON; set 3, 4, 5, 6, 8 OFF.",
+        "SW4: set switches 1 through 8 OFF.",
+        "Check the printed ON direction, then reconnect power."
+      ],
+      "url": "https://texasinstruments.github.io/TOBI/boards/sk-am62-lp/",
+      "emmc_status": "filesystem",
+      "mode_title": "eMMC \u00b7 filesystem boot",
+      "switches": [
+        {
+          "bank": "SW3",
+          "states": [
+            "ON",
+            "ON",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "ON",
+            "OFF"
+          ],
+          "bits": [
+            "B0",
+            "B1",
+            "B2",
+            "B3",
+            "B4",
+            "B5",
+            "B6",
+            "B7"
+          ]
+        },
+        {
+          "bank": "SW4",
+          "states": [
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF"
+          ],
+          "bits": [
+            "B8",
+            "B9",
+            "B10",
+            "B11",
+            "B12",
+            "B13",
+            "B14",
+            "B15"
+          ]
+        }
+      ],
+      "bootmode_hex": "0x0043",
+      "verified_on": "2026-10-02",
+      "notes": [
+        "Settings select MMCSD port 0, filesystem mode, 25 MHz reference and no backup boot (BOOTMODE 0x0043). B0 through B15 in the diagram denote BOOTMODE signals.",
+        "Switch positions use ascending printed numbers. Move toward the printed ON mark for ON (logic 1); OFF is logic 0.",
+        "Page37 prose says SW1/SW2, but section2.19.2, Figure2-25, and Tables2-20 through2-23 consistently define actual SW3 low/SW4 high.",
+        "Table2-22 MMC/SD row shows only port1 (SD). For eMMC-UDA choose port0 per official AM62x SDK UDA guide, leaving SW4.2 OFF.",
+        "The similarly named hardware eMMC boot mode reads Boot0/Boot1. It does not use this filesystem boot layout.",
+        "TOBI recovery loaders support the filesystem stage handoff. Third-party bootloaders must also support their installed eMMC layout."
+      ],
+      "sources": [
+        {
+          "title": "AM62x Low-Power SK EVM User's Guide \u00b7 Rev B, August 2026",
+          "url": "https://www.ti.com/lit/ug/spruj51b/spruj51b.pdf"
+        },
+        {
+          "title": "How to flash eMMC and boot from eMMC UDA",
+          "url": "https://software-dl.ti.com/processor-sdk-linux/esd/AM62X/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html"
+        },
+        {
+          "title": "Official switch wiring and numbering \u00b7 page 37",
+          "url": "https://www.ti.com/lit/ug/spruj51b/spruj51b.pdf#page=37"
+        }
+      ],
+      "recovery_steps": [
+        "Disconnect power and reinsert the TOBI recovery SD card.",
+        "Restore the SD filesystem boot settings from the linked board manual.",
+        "Reconnect power and correct any image or boot-preparation error before retrying."
+      ]
+    },
+    {
+      "board_id": "sk-am62-sip",
+      "name": "SK-AM62-SIP",
+      "summary": "SW1: 1, 2, 7 ON; all others OFF. SW2: all OFF.",
+      "steps": [
+        "Disconnect power and remove the recovery SD card.",
+        "SW1: set 1, 2, 7 ON; set 3, 4, 5, 6, 8 OFF.",
+        "SW2: set switches 1 through 8 OFF.",
+        "Check the printed ON direction, then reconnect power."
+      ],
+      "url": "https://texasinstruments.github.io/TOBI/boards/sk-am62-sip/",
+      "emmc_status": "filesystem",
+      "mode_title": "eMMC \u00b7 filesystem boot",
+      "switches": [
+        {
+          "bank": "SW1",
+          "states": [
+            "ON",
+            "ON",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "ON",
+            "OFF"
+          ],
+          "bits": [
+            "B0",
+            "B1",
+            "B2",
+            "B3",
+            "B4",
+            "B5",
+            "B6",
+            "B7"
+          ]
+        },
+        {
+          "bank": "SW2",
+          "states": [
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF"
+          ],
+          "bits": [
+            "B8",
+            "B9",
+            "B10",
+            "B11",
+            "B12",
+            "B13",
+            "B14",
+            "B15"
+          ]
+        }
+      ],
+      "bootmode_hex": "0x0043",
+      "verified_on": "2026-10-02",
+      "notes": [
+        "Settings select MMCSD port 0, filesystem mode, 25 MHz reference and no backup boot (BOOTMODE 0x0043). B0 through B15 in the diagram denote BOOTMODE signals.",
+        "Switch positions use ascending printed numbers. Move toward the printed ON mark for ON (logic 1); OFF is logic 0.",
+        "Manual Figure2-27 labels SW3 as low bank, but Section2.19.2 and Tables2-29/2-30 specify SW1/SW2; official PROC162E1 schematic page26 confirms SW1/SW2. SW3 is warm-reset pushbutton, not a boot DIP bank.",
+        "The similarly named hardware eMMC boot mode reads Boot0/Boot1. It does not use this filesystem boot layout.",
+        "TOBI recovery loaders support the filesystem stage handoff. Third-party bootloaders must also support their installed eMMC layout."
+      ],
+      "sources": [
+        {
+          "title": "AM62x-SIP SK Evaluation Module User's Guide \u00b7 Rev A, December 2025",
+          "url": "https://www.ti.com/lit/ug/spruja1a/spruja1a.pdf"
+        },
+        {
+          "title": "How to flash eMMC and boot from eMMC UDA",
+          "url": "https://software-dl.ti.com/processor-sdk-linux/esd/AM62X/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html"
+        },
+        {
+          "title": "Official board design package / BOOT MODE BUFFER & SWITCHES schematic",
+          "url": "https://www.ti.com/lit/df/sprr482b/sprr482b.zip"
+        },
+        {
+          "title": "Official switch wiring and numbering \u00b7 page 41",
+          "url": "https://www.ti.com/lit/ug/spruja1a/spruja1a.pdf#page=41"
+        }
+      ],
+      "recovery_steps": [
+        "Disconnect power and reinsert the TOBI recovery SD card.",
+        "Restore the SD filesystem boot settings from the linked board manual.",
+        "Reconnect power and correct any image or boot-preparation error before retrying."
+      ]
+    },
+    {
+      "board_id": "sk-am62b",
+      "name": "SK-AM62B",
+      "summary": "SW1: 1, 2, 7 ON; all others OFF. SW2: all OFF.",
+      "steps": [
+        "Disconnect power and remove the recovery SD card.",
+        "SW1: set 1, 2, 7 ON; set 3, 4, 5, 6, 8 OFF.",
+        "SW2: set switches 1 through 8 OFF.",
+        "Check the printed ON direction, then reconnect power."
+      ],
+      "url": "https://texasinstruments.github.io/TOBI/boards/sk-am62b/",
+      "emmc_status": "filesystem",
+      "mode_title": "eMMC \u00b7 filesystem boot",
+      "switches": [
+        {
+          "bank": "SW1",
+          "states": [
+            "ON",
+            "ON",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "ON",
+            "OFF"
+          ],
+          "bits": [
+            "B0",
+            "B1",
+            "B2",
+            "B3",
+            "B4",
+            "B5",
+            "B6",
+            "B7"
+          ]
+        },
+        {
+          "bank": "SW2",
+          "states": [
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF"
+          ],
+          "bits": [
+            "B8",
+            "B9",
+            "B10",
+            "B11",
+            "B12",
+            "B13",
+            "B14",
+            "B15"
+          ]
+        }
+      ],
+      "bootmode_hex": "0x0043",
+      "verified_on": "2026-10-02",
+      "notes": [
+        "Settings select MMCSD port 0, filesystem mode, 25 MHz reference and no backup boot (BOOTMODE 0x0043). B0 through B15 in the diagram denote BOOTMODE signals.",
+        "Switch positions use ascending printed numbers. Move toward the printed ON mark for ON (logic 1); OFF is logic 0.",
+        "Manual RevF Figure2-19 labels the low bank SW3, inconsistent with its own text, Table2-24 and official PROC114A1 schematic. SW3 is a reset pushbutton. Use SW1 for low boot bits.",
+        "Manual notes boot-switch physical orientation changed between E1 and subsequent revisions; follow the board silkscreen.",
+        "The similarly named hardware eMMC boot mode reads Boot0/Boot1. It does not use this filesystem boot layout.",
+        "TOBI recovery loaders support the filesystem stage handoff. Third-party bootloaders must also support their installed eMMC layout."
+      ],
+      "sources": [
+        {
+          "title": "AM62x SK Evaluation Modules User's Guide \u00b7 Rev F, August 2026",
+          "url": "https://www.ti.com/lit/ug/spruj40f/spruj40f.pdf"
+        },
+        {
+          "title": "How to flash eMMC and boot from eMMC UDA",
+          "url": "https://software-dl.ti.com/processor-sdk-linux/esd/AM62X/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html"
+        },
+        {
+          "title": "Official board design package / BOOT MODE BUFFER & SWITCHES schematic",
+          "url": "https://www.ti.com/lit/df/sprr481a/sprr481a.zip"
+        },
+        {
+          "title": "Official switch wiring and numbering \u00b7 page 53",
+          "url": "https://www.ti.com/lit/ug/spruj40f/spruj40f.pdf#page=53"
+        }
+      ],
+      "recovery_steps": [
+        "Disconnect power and reinsert the TOBI recovery SD card.",
+        "Restore the SD filesystem boot settings from the linked board manual.",
+        "Reconnect power and correct any image or boot-preparation error before retrying."
+      ]
+    },
+    {
+      "board_id": "beagleplay",
+      "name": "BeaglePlay",
+      "summary": "No DIP switches: remove SD and leave USR released.",
+      "steps": [
+        "Disconnect power and remove the recovery SD card.",
+        "Leave the USR button released (do not press it).",
+        "Reconnect power to start the installed eMMC image."
+      ],
+      "url": "https://texasinstruments.github.io/TOBI/boards/beagleplay/",
+      "emmc_status": "boot0",
+      "mode_title": "eMMC \u00b7 USR button",
+      "notes": [
+        "USR is beside the microSD slot. BeaglePlay has fixed boot straps, so there is no filesystem-mode DIP setting.",
+        "TOBI recovery installations prepare a verified first-stage loader in eMMC Boot0. The remaining stages load from the user-area filesystem.",
+        "Third-party images require their own compatible eMMC bootloader layout. A completed disk write alone does not prepare that layout."
+      ],
+      "sources": [
+        {
+          "title": "BeagleBoard: BeaglePlay boot sequence and USR button",
+          "url": "https://docs.beagleboard.org/books/beaglebone-cookbook/11misc/misc.html#the-play-s-boot-sequence"
+        },
+        {
+          "title": "BeaglePlay: bootloader installation to eMMC Boot0",
+          "url": "https://docs.beagleboard.org/boards/beagleplay/demos-and-tutorials/understanding-boot.html#booting-u-boot"
+        },
+        {
+          "title": "BeaglePlay hardware design and button reference",
+          "url": "https://docs.beagleboard.org/boards/beagleplay/03-design.html#buttons"
+        }
+      ],
+      "verified_on": "2026-10-02",
+      "recovery_steps": [
+        "Disconnect power and reinsert the TOBI recovery SD card.",
+        "Hold USR while reconnecting power to select SD boot, then release it.",
+        "Check the installation or boot-preparation error before retrying."
+      ]
+    },
+    {
+      "board_id": "sk-am62a-lp",
+      "name": "SK-AM62A-LP",
+      "summary": "SW2: 1, 2, 7 ON; all others OFF. SW3: all OFF.",
+      "steps": [
+        "Disconnect power and remove the recovery SD card.",
+        "SW2: set 1, 2, 7 ON; set 3, 4, 5, 6, 8 OFF.",
+        "SW3: set switches 1 through 8 OFF.",
+        "Check the printed ON direction, then reconnect power."
+      ],
+      "url": "https://texasinstruments.github.io/TOBI/boards/sk-am62a-lp/",
+      "emmc_status": "filesystem",
+      "mode_title": "eMMC \u00b7 filesystem boot",
+      "switches": [
+        {
+          "bank": "SW2",
+          "states": [
+            "ON",
+            "ON",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "ON",
+            "OFF"
+          ],
+          "bits": [
+            "B0",
+            "B1",
+            "B2",
+            "B3",
+            "B4",
+            "B5",
+            "B6",
+            "B7"
+          ]
+        },
+        {
+          "bank": "SW3",
+          "states": [
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF"
+          ],
+          "bits": [
+            "B8",
+            "B9",
+            "B10",
+            "B11",
+            "B12",
+            "B13",
+            "B14",
+            "B15"
+          ]
+        }
+      ],
+      "bootmode_hex": "0x0043",
+      "verified_on": "2026-10-02",
+      "notes": [
+        "Settings select MMCSD port 0, filesystem mode, 25 MHz reference and no backup boot (BOOTMODE 0x0043). B0 through B15 in the diagram denote BOOTMODE signals.",
+        "Switch positions use ascending printed numbers. Move toward the printed ON mark for ON (logic 1); OFF is logic 0.",
+        "RevD Table2-20 headers incorrectly refer SW4.2/SW4.1/SW3.8; the board-specific schematic Figure2-32 and PLL/device/backup tables establish SW2 low/SW3 high. Actual FS selector is SW2.8 and port0 selector SW3.2.",
+        "Table2-20 MMC/SD row lists port1 (SD); eMMC-UDA uses port0 per AM62Ax TI SDK UDA guide.",
+        "The similarly named hardware eMMC boot mode reads Boot0/Boot1. It does not use this filesystem boot layout.",
+        "TOBI recovery loaders support the filesystem stage handoff. Third-party bootloaders must also support their installed eMMC layout."
+      ],
+      "sources": [
+        {
+          "title": "AM62A Low-Power Starter Kit Evaluation Module User's Guide \u00b7 Rev D, September 2026",
+          "url": "https://www.ti.com/lit/ug/spruj66d/spruj66d.pdf"
+        },
+        {
+          "title": "How to flash eMMC and boot from eMMC UDA",
+          "url": "https://software-dl.ti.com/processor-sdk-linux/esd/AM62AX/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html"
+        },
+        {
+          "title": "Official switch wiring and numbering \u00b7 page 48",
+          "url": "https://www.ti.com/lit/ug/spruj66d/spruj66d.pdf#page=48"
+        }
+      ],
+      "recovery_steps": [
+        "Disconnect power and reinsert the TOBI recovery SD card.",
+        "Restore the SD filesystem boot settings from the linked board manual.",
+        "Reconnect power and correct any image or boot-preparation error before retrying."
+      ]
+    },
+    {
+      "board_id": "tmds62levm",
+      "name": "TMDS62LEVM",
+      "summary": "SW4: 1, 2, 7 ON; all others OFF. SW2 / SW3: all OFF.",
+      "steps": [
+        "Disconnect power and remove the recovery SD card.",
+        "SW4: set 1, 2, 7 ON; set 3, 4, 5, 6, 8 OFF.",
+        "SW2 and SW3: set switches 1 through 4 OFF.",
+        "Check the printed ON direction, then reconnect power."
+      ],
+      "url": "https://texasinstruments.github.io/TOBI/boards/tmds62levm/",
+      "emmc_status": "filesystem",
+      "mode_title": "eMMC \u00b7 filesystem boot",
+      "switches": [
+        {
+          "bank": "SW4",
+          "states": [
+            "ON",
+            "ON",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "ON",
+            "OFF"
+          ],
+          "bits": [
+            "B0",
+            "B1",
+            "B2",
+            "B3",
+            "B4",
+            "B5",
+            "B6",
+            "B7"
+          ]
+        },
+        {
+          "bank": "SW2",
+          "states": [
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF"
+          ],
+          "bits": [
+            "B8",
+            "B9",
+            "B10",
+            "B11"
+          ]
+        },
+        {
+          "bank": "SW3",
+          "states": [
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF"
+          ],
+          "bits": [
+            "B12",
+            "B13",
+            "B14",
+            "B15"
+          ]
+        }
+      ],
+      "bootmode_hex": "0x0043",
+      "verified_on": "2026-10-02",
+      "notes": [
+        "Settings select MMCSD port 0, filesystem mode, 25 MHz reference and no backup boot (BOOTMODE 0x0043). B0 through B15 in the diagram denote BOOTMODE signals.",
+        "Switch positions use ascending printed numbers. Move toward the printed ON mark for ON (logic 1); OFF is logic 0.",
+        "Use full pincount mode: SW3.3 and SW3.4 OFF. Reduced-pincount eMMC presets select hardware eMMC boot, which is distinct from TOBI MMCSD/UDA filesystem boot.",
+        "Page10 prose incorrectly references SW3.7 for BOOTMODE13; there are only4positions inSW3. Table2-9 and Figure2-3 correctly map BOOTMODE13 toSW3.2.",
+        "The similarly named hardware eMMC boot mode reads Boot0/Boot1. It does not use this filesystem boot layout.",
+        "TOBI recovery loaders support the filesystem stage handoff. Third-party bootloaders must also support their installed eMMC layout."
+      ],
+      "sources": [
+        {
+          "title": "AM62L Evaluation Module User's Guide \u00b7 Rev B, October 2025",
+          "url": "https://www.ti.com/lit/ug/sprujg8b/sprujg8b.pdf"
+        },
+        {
+          "title": "How to flash eMMC and boot from eMMC UDA",
+          "url": "https://software-dl.ti.com/processor-sdk-linux/esd/AM62LX/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html"
+        },
+        {
+          "title": "Official switch wiring and numbering \u00b7 page 9",
+          "url": "https://www.ti.com/lit/ug/sprujg8b/sprujg8b.pdf#page=9"
+        }
+      ],
+      "recovery_steps": [
+        "Disconnect power and reinsert the TOBI recovery SD card.",
+        "Restore the SD filesystem boot settings from the linked board manual.",
+        "Reconnect power and correct any image or boot-preparation error before retrying."
+      ]
+    },
+    {
+      "board_id": "sk-am64b",
+      "name": "SK-AM64B",
+      "summary": "This starter kit has no onboard eMMC to boot from.",
+      "steps": [
+        "Keep using the installed SD card or supported external media.",
+        "There is no eMMC boot-switch setting for this starter kit.",
+        "Use the exact board manual to select the installed media."
+      ],
+      "url": "https://texasinstruments.github.io/TOBI/boards/sk-am64b/",
+      "sources": [
+        {
+          "title": "AM64x SK EVM User's Guide, SPRUIY9C",
+          "url": "https://www.ti.com/lit/pdf/spruiy9"
+        },
+        {
+          "title": "SK-AM64B product storage specifications",
+          "url": "https://www.ti.com/tool/SK-AM64B"
+        },
+        {
+          "title": "Figure 2-10: Bootmode Switch Positions Example",
+          "url": "https://www.ti.com/lit/pdf/spruiy9#page=18"
+        }
+      ],
+      "verified_on": "2026-10-02",
+      "notes": [
+        "SPRUIY9C covers PROC100E1/E2/E3/E4 and production SK-AM64B PROC100A. Check PCB revision. MMC0 serves WiLink, not eMMC.",
+        "Do not apply eMMC settings from the similarly named full evaluation module."
+      ],
+      "emmc_status": "none",
+      "mode_title": "SD \u00b7 no onboard eMMC",
+      "recovery_steps": [
+        "Disconnect power before moving switches or changing the SD card.",
+        "Insert the TOBI recovery SD card and select the SD boot settings in this board\u2019s official manual.",
+        "Reconnect power and check the debug UART if there is no visible startup."
+      ]
+    },
+    {
+      "board_id": "tmds64evm",
+      "name": "TMDS64EVM",
+      "summary": "SW2: 1, 2, 7 ON; all others OFF. SW3: all OFF.",
+      "steps": [
+        "Disconnect power and remove the recovery SD card.",
+        "SW2: set 1, 2, 7 ON; set 3, 4, 5, 6, 8 OFF.",
+        "SW3: set switches 1 through 8 OFF.",
+        "Check the printed ON direction, then reconnect power."
+      ],
+      "url": "https://texasinstruments.github.io/TOBI/boards/tmds64evm/",
+      "sources": [
+        {
+          "title": "AM64x/AM243x GP EVM User's Guide, SPRUIX0D",
+          "url": "https://www.ti.com/lit/pdf/spruix0"
+        },
+        {
+          "title": "TI SDK: boot from eMMC UDA using MMCSD port0 FS",
+          "url": "https://software-dl.ti.com/processor-sdk-linux/esd/AM64X/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html"
+        },
+        {
+          "title": "Figures 3-9 and 3-10: boot-mode switch schematic and PCB photo",
+          "url": "https://www.ti.com/lit/pdf/spruix0#page=19"
+        }
+      ],
+      "verified_on": "2026-10-02",
+      "notes": [
+        "These settings follow the layout in SPRUIX0D. Check the physical bank labels, ON marking and board revision. The GP EVM product name does not establish the silicon security type; select bootloaders for the actual device.",
+        "Switches are listed in ascending printed order, 1 through 8. ON = logic 1. These settings select MMCSD port 0 filesystem boot (BOOTMODE 0x0043).",
+        "The pattern 11010010 in SW2 switch 1\u20138 order selects hardware eMMC boot, which expects a different Boot0/Boot1 layout. Use 11000010 for the filesystem image prepared by TOBI.",
+        "B0 through B15 in the diagram denote BOOTMODE signals."
+      ],
+      "emmc_status": "filesystem",
+      "mode_title": "eMMC \u00b7 filesystem boot",
+      "switches": [
+        {
+          "bank": "SW2",
+          "states": [
+            "ON",
+            "ON",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "ON",
+            "OFF"
+          ],
+          "bits": [
+            "B0",
+            "B1",
+            "B2",
+            "B3",
+            "B4",
+            "B5",
+            "B6",
+            "B7"
+          ]
+        },
+        {
+          "bank": "SW3",
+          "states": [
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF",
+            "OFF"
+          ],
+          "bits": [
+            "B8",
+            "B9",
+            "B10",
+            "B11",
+            "B12",
+            "B13",
+            "B14",
+            "B15"
+          ]
+        }
+      ],
+      "recovery_steps": [
+        "Disconnect power and restore the SD filesystem boot switches from the linked board manual.",
+        "Reinsert the TOBI recovery SD card, reconnect power, and inspect the flash or boot-preparation error.",
+        "Keep the secure bootloader matched to the silicon; the GP EVM name does not identify the device security type."
+      ],
+      "bootmode_hex": "0x0043"
+    },
+    {
+      "board_id": "sk-am68",
+      "name": "SK-AM68",
+      "summary": "This starter kit has no onboard eMMC to boot from.",
+      "steps": [
+        "Keep using the installed SD card or supported external media.",
+        "There is no eMMC boot-switch setting for this starter kit.",
+        "Use the exact board manual to select the installed media."
+      ],
+      "url": "https://texasinstruments.github.io/TOBI/boards/sk-am68/",
+      "sources": [
+        {
+          "title": "SK-AM68 Processor Starter Kit User's Guide, SPRUJ68A",
+          "url": "https://www.ti.com/lit/pdf/spruj68"
+        },
+        {
+          "title": "Figures 2-1 and 2-2: top and bottom board interfaces",
+          "url": "https://www.ti.com/lit/pdf/spruj68#page=5"
+        }
+      ],
+      "verified_on": "2026-10-02",
+      "notes": [
+        "SPRUJ68A specifies LPDDR4, OSPI NOR and microSD, with no eMMC. SW1 is boot configuration; SW2 is reset and SW3 is a user pushbutton.",
+        "Do not apply eMMC settings from the similarly named full evaluation module.",
+        "For SD boot, set SW1 switches 1, 2 and 3 OFF. Leave unrelated settings unchanged."
+      ],
+      "emmc_status": "none",
+      "mode_title": "SD \u00b7 no onboard eMMC",
+      "recovery_steps": [
+        "Disconnect power before moving switches or changing the SD card.",
+        "Insert the TOBI recovery SD card and select the SD boot settings in this board\u2019s official manual.",
+        "Reconnect power and check the debug UART if there is no visible startup."
+      ]
+    },
+    {
+      "board_id": "sk-am69",
+      "name": "SK-AM69",
+      "summary": "SW2: 1 OFF, 2 ON, 3 ON; leave switch 4 unchanged.",
+      "steps": [
+        "Confirm Boot0 preparation finished without warnings.",
+        "Disconnect power and remove the recovery SD card.",
+        "SW2: set 1 OFF, 2 ON and 3 ON; leave 4 unchanged.",
+        "Reconnect power to start the installed eMMC image."
+      ],
+      "url": "https://texasinstruments.github.io/TOBI/boards/sk-am69/",
+      "sources": [
+        {
+          "title": "AM69 Processor Starter Kit Evaluation Module, SPRUJ70B",
+          "url": "https://www.ti.com/lit/pdf/spruj70"
+        },
+        {
+          "title": "TI expert correction: SK-AM69 does not support eMMC UDA boot",
+          "url": "https://e2e.ti.com/support/processors-group/processors/f/processors-forum/1456685/am69-am69"
+        },
+        {
+          "title": "Official AM69 SK hardware setup and switch photograph",
+          "url": "https://software-dl.ti.com/jacinto7/esd/processor-sdk-linux-j784s4/11_02_02_05/exports/docs/linux/How_to_Guides/Hardware_Setup_with_CCS/AM69_SK_Hardware_Setup.html"
+        },
+        {
+          "title": "Table2-3: boot settings",
+          "url": "https://www.ti.com/lit/pdf/spruj70#page=6"
+        },
+        {
+          "title": "TI AM69-SK: hardware boot partition programming and ROM configuration",
+          "url": "https://software-dl.ti.com/jacinto7/esd/processor-sdk-linux-am69/10_01_08_01/exports/docs/linux/How_to_Guides/Host/Program_MMC_boot_media.html"
+        }
+      ],
+      "verified_on": "2026-10-02",
+      "notes": [
+        "SPRUJ70B Table2-3 lists eMMC OFF/ON/ON and also repeats that pattern as Reserved, a table defect. TI support confirms UDA boot unsupported after correcting confusion with the full AM69 EVM. No full-EVM SW8/SW9 or SW11/SW7 settings apply to SK-AM69.",
+        "This starter kit cannot select ROM filesystem boot from the eMMC user area with its stock switches. The setting above selects hardware eMMC boot and requires a prepared Boot0 loader.",
+        "TOBI recovery installations must prepare a verified first-stage loader in Boot0 before reporting success. The patched SPL then reads the remaining stages from the user-area filesystem.",
+        "Third-party images need a compatible eMMC bootloader layout. If boot preparation fails, retain SD boot instead of trying an incomplete installation.",
+        "Automatic SK-AM69 Boot0 preparation requires a TOBI build containing this board-guide change. The previously published 2026.10.2 image does not include that fix; keep SD boot until updated."
+      ],
+      "emmc_status": "boot0",
+      "mode_title": "eMMC \u00b7 Boot0 bootstrap",
+      "switches": [
+        {
+          "bank": "SW2",
+          "states": [
+            "OFF",
+            "ON",
+            "ON"
+          ],
+          "bits": [
+            "Select 0",
+            "Select 1",
+            "Select 2"
+          ]
+        }
+      ],
+      "recovery_steps": [
+        "Disconnect power and reinsert the TOBI recovery SD card.",
+        "For SD boot, set SW2 switches 1, 2 and 3 OFF; leave switch 4 unchanged.",
+        "Reconnect power and correct any image or Boot0 preparation error before retrying."
+      ]
+    }
+  ]
+}

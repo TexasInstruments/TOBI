@@ -9,3 +9,4 @@
 bitbake-cookerdaemon.log
 bitbake.lock
 .DS_Store
+__pycache__/

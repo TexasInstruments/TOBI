@@ -4,6 +4,8 @@ finduuid=part uuid ${boot} 1:2 uuid
 
 name_initramfs=recovery/uInitrd
 
-uenvcmd=setexpr fdtfile sub ti/ti ti; run bootcmd_ti_mmc
+tobi_set_boot_source=setenv tobi_cid0; setenv tobi_cid1; setenv tobi_cid2; setenv tobi_cid3; if mmc dev ${mmcdev} && mmc reg read cid 0 tobi_cid0 && mmc reg read cid 1 tobi_cid1 && mmc reg read cid 2 tobi_cid2 && mmc reg read cid 3 tobi_cid3; then setenv optargs ${optargs} tobi.boot_cid=${tobi_cid0}:${tobi_cid1}:${tobi_cid2}:${tobi_cid3}; fi
+
+uenvcmd=run tobi_set_boot_source; setexpr fdtfile sub ti/ti ti; run bootcmd_ti_mmc
 
 optargs=vt.global_cursor_default=1 console=ttyS2,115200n8 console=tty0 quiet loglevel=1 tobi.ttys=/dev/tty0,/dev/ttyS2

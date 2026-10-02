@@ -8,6 +8,7 @@ RUN apt-get update \
 COPY tobi/Cargo.toml tobi/Cargo.lock* ./
 COPY tobi/src ./src
 COPY catalog.json /app/catalog.json
+COPY docs/boot-guide.json /app/docs/boot-guide.json
 RUN cargo build --release
 
 FROM debian:trixie-slim

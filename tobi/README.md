@@ -28,6 +28,12 @@ TOBI_MOCK_BOARD=sk-am64b cargo run -- --mode mock
 
 The app intentionally does not embed a downloadable-image catalog. If the online catalog cannot be reached, TOBI shows a warning and continues with the local custom-image option only.
 
+## TOBI Updates
+
+Before showing the OS list, TOBI compares its running version with the newest stable TOBI image for the detected board. The check runs after Welcome and any proxy configuration. **Install** downloads and writes the new full image to the verified current boot media; the prompt names the device and warns that all its data will be erased and a reboot is required. **Skip** continues to the OS list without another prompt that session.
+
+Updates finish on the completion screen and require a manual reboot or power cycle. TOBI uses the boot card's hardware CID supplied by U-Boot, with a unique `root=PARTUUID` fallback for older boot environments. Automatic installation is unavailable when the source cannot be proven, the system is not RAM-resident, or the target is mounted. Mock mode simulates an update to its mock SD card without writing storage. Images need to be rebuilt to include this feature and the boot-source marker.
+
 ## Run Locally
 
 No arguments match the production appliance behavior: live mode with write permissions enabled.
@@ -93,7 +99,7 @@ docker run --rm -it tobi
 
 ## Live Write Mode
 
-Live mode is the default production mode. The TUI still requires explicit target selection and confirmation before writing:
+Live mode is the default production mode. Normal OS installations require explicit target selection and confirmation; installing a TOBI update instead writes the verified current boot media as described above:
 
 ```sh
 sudo tobi \
@@ -106,9 +112,11 @@ The production Yocto image should run fully from initramfs before this mode is u
 
 After an eMMC image write, TOBI runs a post-flash boot patcher before showing the success screen. The patcher mounts the installed boot partition, updates `uEnv.txt` when the image is recognized as TI Yocto, TI Debian, or Armbian media, then unmounts it. This fixes SD-card-oriented defaults by selecting the eMMC MMC index and rootfs partition. For a TOBI image, it retains the `/recovery` boot paths and TOBI arguments so the installed image starts the RAM installer again. The install UI shows the patching phase and the final success popup lists exactly what was changed. A boot-preparation warning stops the install with an error, even when the disk image was written; correct the reported problem and keep the SD card for recovery.
 
-The default eMMC layout is a disk image in the user data area, with bootloaders in its filesystem boot partition. After success, power off, remove the SD card, select **MMCSD boot from eMMC port 0 in filesystem mode** on boards whose boot pins can select it, then power on. ROM's separate **eMMC boot** mode requires bootloaders in Boot0/Boot1. The install result cannot change physical switches; use the board manual and [TI's eMMC UDA guide](https://software-dl.ti.com/processor-sdk-linux/esd/AM62X/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html).
+After a successful eMMC flash, the completion screen shows board-specific instructions from `../docs/boot-guide.json`. Press **G** for a full-screen QR code to the illustrated GitHub Pages guide; press G, Esc or Enter to return to instructions. Enter in the QR view does not reboot. Serial consoles print the settings and URL. The guide also identifies SK-AM64B and SK-AM68 as having no onboard eMMC. See the [Pages build and publishing instructions](../docs/README.md); a repository admin must enable Pages before the QR links are live.
 
-BeaglePlay's fixed released-USR boot straps select Boot0. When installing a TOBI recovery image, TOBI copies its `tiboot3.bin` to Boot0, verifies the copy by reading it back, and configures the eMMC to start that loader. Only this first stage uses Boot0; its patched SPL loads the remaining bootloader stages from the user-area filesystem. After success, power off, remove the SD card, and power on with USR released. Third-party images must provide compatible filesystem bootloaders. Keep the SD recovery image available while verifying eMMC startup without the SD card.
+The default eMMC layout is a disk image in the user data area, with bootloaders in its filesystem boot partition. AM62 starter kits, TMDS62LEVM and TMDS64EVM use **MMCSD boot from eMMC port 0 in filesystem mode**. Power off before changing switches or removing the SD card. ROM's separate **eMMC boot** mode reads Boot0/Boot1 and requires a different first-stage layout. Check the board revision, printed switch numbers and ON marking; see the shared guide's official references and [TI's eMMC UDA explanation](https://software-dl.ti.com/processor-sdk-linux/esd/AM62X/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html).
+
+BeaglePlay's released-USR straps and SK-AM69's stock eMMC switch mode require Boot0. When installing a TOBI recovery image on either board, TOBI copies its `tiboot3.bin` to Boot0, verifies the copy by reading it back, and configures the eMMC to start that loader. The patched SPL then loads the remaining stages from the user-area filesystem. After success, power off and remove SD; leave BeaglePlay's USR released, or set SK-AM69 SW2.1 OFF, SW2.2/SW2.3 ON and leave SW2.4 unchanged. Third-party images are not automatically prepared with this recovery-only bootstrap. Keep the SD recovery image available while verifying startup.
 
 Successful eMMC installs do not start the ten-second automatic reboot countdown. The completion screen provides the power-off and boot-mode instructions above; Enter remains available for a manual reboot.
 

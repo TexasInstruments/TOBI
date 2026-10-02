@@ -3,12 +3,14 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/${PN}:"
 SRC_URI:append = " \
     file://0003-spl-tobi-boot-mmc-from-filesystem.patch \
     file://0004-env-find-tobi-emmc-without-sd.patch \
+    file://0005-mmc-permit-read-only-sd-cid.patch \
 "
 
 # Start with BeaglePlay while the menu and media mappings are hardware-tested.
 SRC_URI:append:beagleplay-ti = " \
     file://0001-board-beagleplay-add-TOBI-recovery-boot-menu.patch \
     file://0002-board-beagleplay-enable-IT66121-HDMI-boot-menu.patch \
+    file://0006-beagleplay-identify-recovery-boot-card.patch \
     file://recolor-ti-logo.py \
 "
 
