@@ -6,20 +6,28 @@ export PATH
 mount -t proc proc /proc 2>/dev/null || true
 mount -t sysfs sysfs /sys 2>/dev/null || true
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
-mount -t tmpfs tmpfs /run 2>/dev/null || true
-mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+mount -t tmpfs -o mode=755,size=16M tmpfs /run 2>/dev/null || true
+mount -t tmpfs -o mode=1777,size=32M tmpfs /tmp 2>/dev/null || true
 
 mkdir -p /media /mnt /run/media
 
 echo "TOBI initramfs starting"
 
 cmdline="$(cat /proc/cmdline 2>/dev/null || true)"
+memory_log="/run/tobi-memory.log"
 
 cmdline_has() {
     case " $cmdline " in
         *" $1 "*) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+tobi_lite_enabled() {
+    [ "${TOBI_LITE:-}" = "1" ] && return 0
+    cmdline_has "tobi.lite=1" && return 0
+    cmdline_has "tobi.lite" && return 0
+    return 1
 }
 
 cmdline_value() {
@@ -41,11 +49,108 @@ quiet_kernel_console() {
     [ -w /proc/sys/kernel/printk ] && echo "1 1 1 7" >/proc/sys/kernel/printk 2>/dev/null || true
 }
 
+log_memory() {
+    stage="$1"
+
+    {
+        echo
+        echo "== $stage =="
+        date -u 2>/dev/null || true
+        grep -E '^(MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree|Dirty|Writeback|Slab|SReclaimable|Cma)' /proc/meminfo 2>/dev/null || true
+        [ -r /proc/swaps ] && cat /proc/swaps 2>/dev/null || true
+        df -k /run /tmp 2>/dev/null || true
+    } >>"$memory_log" 2>/dev/null || true
+}
+
+configure_memory_tuning() {
+    [ -w /proc/sys/vm/dirty_background_bytes ] && echo 4194304 >/proc/sys/vm/dirty_background_bytes 2>/dev/null || true
+    [ -w /proc/sys/vm/dirty_bytes ] && echo 8388608 >/proc/sys/vm/dirty_bytes 2>/dev/null || true
+    [ -w /proc/sys/vm/dirty_expire_centisecs ] && echo 500 >/proc/sys/vm/dirty_expire_centisecs 2>/dev/null || true
+    [ -w /proc/sys/vm/dirty_writeback_centisecs ] && echo 100 >/proc/sys/vm/dirty_writeback_centisecs 2>/dev/null || true
+    [ -w /proc/sys/vm/vfs_cache_pressure ] && echo 200 >/proc/sys/vm/vfs_cache_pressure 2>/dev/null || true
+    [ -w /proc/sys/vm/swappiness ] && echo 80 >/proc/sys/vm/swappiness 2>/dev/null || true
+}
+
+setup_zram_swap() {
+    tobi_lite_enabled || return 0
+    command -v modprobe >/dev/null 2>&1 && {
+        modprobe zsmalloc >/dev/null 2>&1 || true
+        modprobe zram >/dev/null 2>&1 || true
+    }
+    [ -b /dev/zram0 ] || [ -d /sys/block/zram0 ] || {
+        echo "zram is not available; continuing without RAM swap." >/dev/console
+        return 0
+    }
+
+    if [ -w /sys/block/zram0/comp_algorithm ] && grep -qw lz4 /sys/block/zram0/comp_algorithm 2>/dev/null; then
+        echo lz4 >/sys/block/zram0/comp_algorithm 2>/dev/null || true
+    fi
+
+    mem_kib="$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo 2>/dev/null || echo 0)"
+    case "$mem_kib" in
+        ''|*[!0-9]*) mem_kib=0 ;;
+    esac
+    size_kib=$((mem_kib / 2))
+    [ "$size_kib" -gt 131072 ] && size_kib=131072
+    [ "$size_kib" -lt 65536 ] && size_kib=65536
+
+    if [ -w /sys/block/zram0/disksize ]; then
+        echo $((size_kib * 1024)) >/sys/block/zram0/disksize 2>/dev/null || true
+    fi
+
+    if command -v mkswap >/dev/null 2>&1 && command -v swapon >/dev/null 2>&1; then
+        mkswap /dev/zram0 >/dev/console 2>&1 || return 0
+        swapon -p 100 /dev/zram0 >/dev/console 2>&1 || true
+    else
+        echo "mkswap/swapon not available; zram swap skipped." >/dev/console
+    fi
+}
+
 load_modules() {
     command -v modprobe >/dev/null 2>&1 || return 0
 
     # These are intentionally best-effort. The exact built-in/module split can
     # differ across TI SDK kernels, and missing modules should not block TOBI.
+    for module in \
+        mmc-block \
+        sdhci \
+        sdhci-pltfm \
+        sdhci-am654 \
+        cqhci \
+        sd-mod \
+        scsi-mod \
+        xhci-hcd \
+        xhci-plat-hcd \
+        dwc3 \
+        dwc3-am62 \
+        usb-storage \
+        uas \
+        usbhid \
+        hid-generic \
+        vfat \
+        fat \
+        nls-cp437 \
+        nls-iso8859-1 \
+        ext4 \
+        jbd2 \
+        mbcache \
+        phy-gmii-sel \
+        davinci-mdio \
+        mdio-bitbang \
+        of-mdio \
+        fixed-phy \
+        micrel \
+        dp83867 \
+        dp83869 \
+        realtek \
+        zsmalloc \
+        zram \
+        motorcomm \
+        ti-am65-cpsw-nuss
+    do
+        modprobe "$module" >/dev/null 2>&1 || true
+    done
+
     # Bridge/connector modules need to be available before tidss probes, since
     # there is no udev in this initramfs to retry deferred display probes.
     for module in \
@@ -67,7 +172,7 @@ load_modules() {
         cdns-dphy \
         cdns-mhdp8546 \
         sii902x \
-        it66121 \
+        ite-it66121 \
         tidss \
         fbcon \
         usbhid \
@@ -201,6 +306,10 @@ tobi_extra_args_from_cmdline() {
         args="$args --test-proxy-setup"
     fi
 
+    if tobi_lite_enabled; then
+        args="$args --lite"
+    fi
+
     echo "$args"
 }
 
@@ -248,6 +357,7 @@ start_tobi_on_tty() {
 
     log="/run/tobi-${tty##*/}.log"
     tty_status "$tty" "Starting TOBI on $tty"
+    log_memory "before TOBI on $tty"
     echo "Starting TOBI on $tty with TERM=$tobi_term at $(date -u 2>/dev/null || true)" >"$log"
     if [ "$tobi_needs_session" = "1" ] && command -v setsid >/dev/null 2>&1; then
         TERM="$tobi_term" setsid -c /usr/bin/tobi \
@@ -268,6 +378,7 @@ start_tobi_on_tty() {
     fi
     rc="$?"
     echo "TOBI on $tty exited with status $rc at $(date -u 2>/dev/null || true)" >>"$log"
+    log_memory "after TOBI on $tty"
     return "$rc"
 }
 
@@ -286,11 +397,80 @@ start_tobi_on_tty_forever() {
     done
 }
 
+kill_running_tobi() {
+    for proc_dir in /proc/[0-9]*; do
+        [ -d "$proc_dir" ] || continue
+        pid="${proc_dir##*/}"
+        cmd="$(tr '\000' ' ' <"$proc_dir/cmdline" 2>/dev/null || true)"
+        case "$cmd" in
+            *"/usr/bin/tobi"*)
+                kill "$pid" 2>/dev/null || true
+                ;;
+        esac
+    done
+}
+
+start_lite_serial_switcher() {
+    tty="$1"
+
+    case "$tty" in
+        /dev/*) ;;
+        *) tty="/dev/$tty" ;;
+    esac
+
+    [ -c "$tty" ] || {
+        echo "Skipping TOBI-lite serial switch prompt on $tty; device is not available." >/dev/console
+        return 0
+    }
+
+    (
+        stty -F "$tty" sane rows "${TOBI_SERIAL_ROWS:-30}" cols "${TOBI_SERIAL_COLS:-100}" 2>/dev/null || true
+
+        while true; do
+            {
+                printf '\r\nTOBI-lite is running on the HDMI display.\r\n'
+                printf 'Type SERIAL and press Enter to stop HDMI TOBI and run on this serial console.\r\n'
+                printf 'HDMI TOBI will stay stopped after switching to serial mode.\r\n'
+                printf '> '
+            } >"$tty" 2>/dev/null || true
+
+            if ! IFS= read -r command <"$tty"; then
+                sleep 1
+                continue
+            fi
+
+            case "$command" in
+                SERIAL|serial|Serial|S|s)
+                    touch /run/tobi-serial-mode
+                    kill_running_tobi
+                    start_tobi_on_tty "$tty"
+                    printf '\r\nSerial TOBI exited. HDMI TOBI remains stopped. Type SERIAL to start it here again.\r\n' >"$tty" 2>/dev/null || true
+                    ;;
+                *)
+                    printf '\r\nUnknown command. Type SERIAL to switch TOBI to this console.\r\n' >"$tty" 2>/dev/null || true
+                    ;;
+            esac
+        done
+    ) &
+}
+
+if tobi_lite_enabled; then
+    export TOBI_LITE=1
+fi
+
+log_memory "after mounts"
 quiet_kernel_console
+log_memory "after quiet console"
 load_modules
+log_memory "after modules"
+configure_memory_tuning
+setup_zram_swap
+log_memory "after memory tuning"
 
 bring_up_network
+log_memory "after network"
 sync_clock
+log_memory "after clock sync"
 
 TOBI_TTYS="$(tobi_ttys_from_cmdline)"
 export TOBI_TTYS
@@ -311,13 +491,23 @@ for tty in $TOBI_TTYS; do
         continue
     fi
 
-    start_tobi_on_tty_forever "$tty" &
+    if tobi_lite_enabled; then
+        start_lite_serial_switcher "$tty"
+    else
+        start_tobi_on_tty_forever "$tty" &
+    fi
 done
 
 while true; do
     if [ -n "$primary_tty" ]; then
         start_tobi_on_tty "$primary_tty"
         rc="$?"
+        if tobi_lite_enabled && [ -e /run/tobi-serial-mode ]; then
+            echo "TOBI-lite switched to serial mode; HDMI UI will stay stopped." >/dev/console
+            while true; do
+                sleep 3600
+            done
+        fi
         echo "TOBI on $primary_tty exited with status $rc; starting recovery shell on /dev/console." >/dev/console
     else
         echo "No TOBI TTYs configured; starting recovery shell on /dev/console." >/dev/console

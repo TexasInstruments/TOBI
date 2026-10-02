@@ -9,6 +9,7 @@ DOWNLOADS_VOLUME="${DOWNLOADS_VOLUME:-tobi-x86_64-yocto-downloads}"
 SSTATE_VOLUME="${SSTATE_VOLUME:-tobi-x86_64-yocto-sstate}"
 HOME_VOLUME="${HOME_VOLUME:-tobi-x86_64-yocto-home}"
 MACHINE="${MACHINE:-am62pxx-evm}"
+BITBAKE_TARGET="${BITBAKE_TARGET:-tobi-sd-image}"
 SDK_CONFIG="${SDK_CONFIG:-processor-sdk-master-12.00.00.07.04-config.txt}"
 
 if [[ ! -x "$OUT_DIR/tobi" ]]; then
@@ -47,6 +48,7 @@ docker run --rm \
   --user "$(id -u):$(id -g)" \
   -e HOME=/yocto/home \
   -e MACHINE="$MACHINE" \
+  -e BITBAKE_TARGET="$BITBAKE_TARGET" \
   -e SDK_CONFIG="$SDK_CONFIG" \
   -e TISDK_DIR=/yocto/tisdk \
   -e DL_DIR=/yocto/downloads \
@@ -65,8 +67,10 @@ docker run --rm \
     mkdir -p "$HOME" /workspace/out/yocto
     git config --global user.email "tobi-builder@example.invalid"
     git config --global user.name "TOBI Builder"
-    ./yocto/scripts/bootstrap-tobi-yocto.sh tobi-sd-image
+    ./yocto/scripts/bootstrap-tobi-yocto.sh "$BITBAKE_TARGET"
     find "$TISDK_DIR/build" -path "*deploy*images*" \
-      \( -name "tobi-sd-image*.wic.xz" -o -name "tobi-sd-image*.wic.bmap" -o -name "tobi-initramfs*.cpio.xz" \) \
+      \( -name "tobi-sd-image*.wic.xz" -o -name "tobi-sd-image*.wic.bmap" \
+         -o -name "tobi-lite-sd-image*.wic.xz" -o -name "tobi-lite-sd-image*.wic.bmap" \
+         -o -name "tobi-initramfs*.cpio.xz" -o -name "tobi-lite-initramfs*.cpio.xz" \) \
       -exec cp -f {} /workspace/out/yocto/ \;
   '

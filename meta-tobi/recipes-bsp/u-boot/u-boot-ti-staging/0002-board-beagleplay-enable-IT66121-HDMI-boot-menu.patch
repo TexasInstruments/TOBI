@@ -1,0 +1,965 @@
+From b92b5ef82448ee80bd4a83329c2ffe8861beafe5 Mon Sep 17 00:00:00 2001
+From: Andrei Aldea <andrei1998@gmail.com>
+Date: Tue, 4 Aug 2026 15:13:49 -0500
+Subject: [PATCH] board: beagleplay: enable IT66121 HDMI boot menu
+
+Add a video-only ITE IT66121 bridge driver with HPD, EDID, fallback timing, RGB input, and AFE setup. Teach TIDSS to activate its AM625 DPI pipeline through a video bridge and use display_timing pixel clocks in Hz.
+
+Route TOBI output to both serial and vidconsole so a missing display never removes UART access.
+
+Show the packaged TI logo for three seconds before opening the TOBI menu, then
+leave the menu available for ten seconds. Try loading the logo from SD first and
+eMMC second so a missing boot partition does not interrupt boot. Use a dark
+console theme so the boot menu is white-on-black.
+
+Teach the TIDSS graph walker that terminal sinks such as an HDMI connector use
+a singular port node. Without this, the valid BeaglePlay DPI pipeline is
+rejected before the IT66121 driver can probe.
+
+Upstream-Status: Inappropriate [includes TOBI-specific console policy]
+
+Signed-off-by: Andrei Aldea <andrei1998@gmail.com>
+---
+ board/beagle/beagleplay/tobi.env       |   9 +-
+ board/beagle/beagleplay/beagleplay.c   |  24 ++
+ configs/am62x_beagleplay_a53_defconfig |  19 +-
+ drivers/video/bridge/Kconfig           |  11 +
+ drivers/video/bridge/Makefile          |   1 +
+ drivers/video/bridge/ite-it66121.c     | 545 +++++++++++++++++++++++++
+ drivers/video/tidss/tidss_drv.c        | 116 ++++--
+ drivers/video/tidss/tidss_drv.h        |   1 +
+ 8 files changed, 693 insertions(+), 33 deletions(-)
+ create mode 100644 drivers/video/bridge/ite-it66121.c
+
+diff --git a/board/beagle/beagleplay/tobi.env b/board/beagle/beagleplay/tobi.env
+index 789cf9b..9f183af 100644
+--- a/board/beagle/beagleplay/tobi.env
++++ b/board/beagle/beagleplay/tobi.env
+@@ -9,6 +9,10 @@
+ 
+ rproc_fw_binaries= 0 /lib/firmware/am62-mcu-m4f0_0-fw
+ 
++stdin=serial
++stdout=serial,vidconsole
++stderr=serial,vidconsole
++
+ name_kern=Image
+ console=ttyS2,115200n8
+ args_all=setenv optargs ${optargs} earlycon=ns16550a,mmio32,0x02800000
+@@ -25,6 +29,9 @@
+ splashimage=0x80200000
+ splashpos=m,m
+ splashsource=mmc
++splashdevpart=1:1
++tobi_splash_delay=3
++preboot=if load mmc 1:1 ${splashimage} ${splashfile} || load mmc 0:1 ${splashimage} ${splashfile}; then cls; bmp display ${splashimage} m m; sleep ${tobi_splash_delay}; fi
+ 
+ #if CONFIG_BOOTMETH_ANDROID
+ #include <env/ti/android.env>
+@@ -36,7 +43,7 @@
+  * Keep the normal OS entries compatible with both the legacy TI uEnv.txt
+  * flow and standard bootflow (extlinux, boot.scr, and EFI).
+  */
+-bootdelay=7
++bootdelay=10
+ bootmenu_default=0
+ bootmenu_title==== TOBI Boot Menu ===
+ bootmenu_subtitle=BeaglePlay recovery bootloader
+diff --git a/board/beagle/beagleplay/beagleplay.c b/board/beagle/beagleplay/beagleplay.c
+index 9bc9ca3..b316f54 100644
+--- a/board/beagle/beagleplay/beagleplay.c
++++ b/board/beagle/beagleplay/beagleplay.c
+@@ -11,11 +11,35 @@
+ #include <env.h>
+ #include <fdt_support.h>
+ #include <spl.h>
++#include <splash.h>
+ 
+ #include <asm/arch/hardware.h>
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
++#if CONFIG_IS_ENABLED(SPLASH_SCREEN)
++static struct splash_location default_splash_locations[] = {
++	{
++		.name = "mmc",
++		.storage = SPLASH_STORAGE_MMC,
++		.flags = SPLASH_STORAGE_FS,
++		.devpart = "1:1",
++	},
++	{
++		.name = "emmc",
++		.storage = SPLASH_STORAGE_MMC,
++		.flags = SPLASH_STORAGE_FS,
++		.devpart = "0:1",
++	},
++};
++
++int splash_screen_prepare(void)
++{
++	return splash_source_load(default_splash_locations,
++				  ARRAY_SIZE(default_splash_locations));
++}
++#endif
++
+ struct efi_fw_image fw_images[] = {
+ 	{
+ 		.image_type_id = BEAGLEPLAY_TIBOOT3_IMAGE_GUID,
+diff --git a/configs/am62x_beagleplay_a53_defconfig b/configs/am62x_beagleplay_a53_defconfig
+index ea75f32..ca846bc 100644
+--- a/configs/am62x_beagleplay_a53_defconfig
++++ b/configs/am62x_beagleplay_a53_defconfig
+@@ -28,8 +28,9 @@
+ # CONFIG_SYS_MALLOC_CLEAR_ON_INIT is not set
+ CONFIG_BOOTSTD_FULL=y
+ CONFIG_ENV_SOURCE_FILE="tobi"
+-CONFIG_BOOTDELAY=7
++CONFIG_BOOTDELAY=10
+ CONFIG_AUTOBOOT_MENU_SHOW=y
++CONFIG_USE_PREBOOT=y
+ CONFIG_AUTOBOOT_KEYED=y
+ CONFIG_AUTOBOOT_PROMPT="Press SPACE to abort autoboot in %d seconds\n"
+ CONFIG_AUTOBOOT_DELAY_STR="d"
+@@ -50,6 +51,7 @@
+ CONFIG_SPL_YMODEM_SUPPORT=y
+ CONFIG_CMD_BOOTEFI_SELFTEST=y
+ CONFIG_CMD_BOOTMENU=y
++CONFIG_CMD_BMP=y
+ CONFIG_CMD_NVEDIT_EFI=y
+ CONFIG_CMD_GPIO=y
+ CONFIG_CMD_GPIO_READ=y
+@@ -118,6 +120,21 @@ CONFIG_RESET_TI_SCI=y
+ CONFIG_DM_RTC=y
+ CONFIG_RTC_EMULATION=y
+ CONFIG_DM_SERIAL=y
++CONFIG_VIDEO=y
++CONFIG_VIDEO_ANSI=y
++CONFIG_SYS_WHITE_ON_BLACK=y
++CONFIG_VIDEO_LOGO=y
++CONFIG_SPLASH_SCREEN=y
++CONFIG_SPLASH_SCREEN_ALIGN=y
++CONFIG_HIDE_LOGO_VERSION=y
++CONFIG_SPLASH_SOURCE=y
++CONFIG_BMP_24BPP=y
++CONFIG_BMP_32BPP=y
++CONFIG_VIDEO_BMP_GZIP=y
++CONFIG_PANEL=y
++CONFIG_VIDEO_BRIDGE=y
++CONFIG_VIDEO_BRIDGE_ITE_IT66121=y
++CONFIG_VIDEO_TIDSS=y
+ CONFIG_SOC_DEVICE=y
+ CONFIG_SOC_DEVICE_TI_K3=y
+ CONFIG_SOC_TI=y
+diff --git a/drivers/video/bridge/Kconfig b/drivers/video/bridge/Kconfig
+index a48cec7..92d8141 100644
+--- a/drivers/video/bridge/Kconfig
++++ b/drivers/video/bridge/Kconfig
+@@ -44,6 +44,17 @@ config VIDEO_BRIDGE_ANALOGIX_ANX6345
+ 	 The Analogix ANX6345 is RGB-to-DP converter. It enables an eDP LCD
+ 	 panel to be connected to an parallel LCD interface.
+ 
++config VIDEO_BRIDGE_ITE_IT66121
++	bool "Support ITE IT66121 DPI-to-HDMI bridge"
++	depends on VIDEO_BRIDGE && DM_GPIO && DM_REGULATOR
++	select DM_I2C
++	select I2C_EDID
++	help
++	  Enable video-only support for the ITE IT66121 HDMI transmitter.
++	  The driver reads EDID, configures 12- or 24-bit RGB input and emits
++	  DVI-compatible TMDS video. Audio, HDCP and runtime hotplug handling
++	  are intentionally not supported.
++
+ config VIDEO_BRIDGE_SOLOMON_SSD2825
+ 	bool "Solomon SSD2825 bridge driver"
+ 	depends on VIDEO_BRIDGE && PANEL && DM_GPIO
+diff --git a/drivers/video/bridge/Makefile b/drivers/video/bridge/Makefile
+index 520f36a..4f338c5 100644
+--- a/drivers/video/bridge/Makefile
++++ b/drivers/video/bridge/Makefile
+@@ -8,6 +8,7 @@ obj-$(CONFIG_VIDEO_BRIDGE_PARADE_DP501) += dp501.o
+ obj-$(CONFIG_VIDEO_BRIDGE_PARADE_PS862X) += ps862x.o
+ obj-$(CONFIG_VIDEO_BRIDGE_NXP_PTN3460) += ptn3460.o
+ obj-$(CONFIG_VIDEO_BRIDGE_ANALOGIX_ANX6345) += anx6345.o
++obj-$(CONFIG_VIDEO_BRIDGE_ITE_IT66121) += ite-it66121.o
+ obj-$(CONFIG_VIDEO_BRIDGE_SOLOMON_SSD2825) += ssd2825.o
+ obj-$(CONFIG_VIDEO_BRIDGE_TOSHIBA_TC358768) += tc358768.o
+ obj-$(CONFIG_VIDEO_BRIDGE_LVDS_CODEC) += lvds-codec.o
+diff --git a/drivers/video/bridge/ite-it66121.c b/drivers/video/bridge/ite-it66121.c
+new file mode 100644
+index 0000000..ffffc7b
+--- /dev/null
++++ b/drivers/video/bridge/ite-it66121.c
+@@ -0,0 +1,545 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * ITE IT66121 HDMI transmitter driver
++ *
++ * Copyright (C) 2026 TOBI contributors
++ *
++ * Adapted from the Linux DRM bridge driver:
++ * Copyright (C) 2020 BayLibre, SAS
++ * Copyright (C) 2018-2019, Artem Mygaiev
++ * Copyright (C) 2017, Fresco Logic, Incorporated
++ *
++ * U-Boot only needs video during boot, so this driver deliberately omits
++ * audio, HDCP, interrupts and runtime hotplug handling. It emits DVI-compatible
++ * TMDS video, which avoids needing HDMI infoframes for the boot console.
++ */
++
++#include <dm.h>
++#include <edid.h>
++#include <i2c.h>
++#include <power/regulator.h>
++#include <video_bridge.h>
++
++#include <asm/gpio.h>
++#include <dm/device_compat.h>
++#include <dm/ofnode_graph.h>
++#include <linux/bitops.h>
++#include <linux/delay.h>
++#include <linux/errno.h>
++
++#define IT66121_VENDOR_ID0_REG			0x00
++#define IT66121_VENDOR_ID1_REG			0x01
++#define IT66121_DEVICE_ID0_REG			0x02
++#define IT66121_DEVICE_ID1_REG			0x03
++#define IT66121_DEVICE_ID1_MASK			GENMASK(3, 0)
++
++#define IT66121_SW_RST_REG			0x04
++#define IT66121_SW_RST_REF			BIT(5)
++#define IT66121_SW_RST_VID			BIT(3)
++#define IT66121_SW_RST_HDCP			BIT(0)
++
++#define IT66121_INT_REG				0x05
++#define IT66121_INT_TX_CLK_OFF			BIT(0)
++
++#define IT66121_SYS_STATUS_REG			0x0e
++#define IT66121_SYS_STATUS_HPDETECT		BIT(6)
++
++#define IT66121_CLK_BANK_REG			0x0f
++#define IT66121_CLK_BANK_PWROFF_RCLK		BIT(6)
++#define IT66121_CLK_BANK_PWROFF_TXCLK		BIT(4)
++
++#define IT66121_MASTER_SEL_REG			0x10
++#define IT66121_MASTER_SEL_HOST			BIT(0)
++#define IT66121_DDC_HEADER_REG			0x11
++#define IT66121_DDC_HEADER_EDID			0xa0
++#define IT66121_DDC_OFFSET_REG			0x12
++#define IT66121_DDC_BYTE_REG			0x13
++#define IT66121_DDC_SEGMENT_REG			0x14
++#define IT66121_DDC_COMMAND_REG			0x15
++#define IT66121_DDC_COMMAND_EDID_READ		0x03
++#define IT66121_DDC_COMMAND_FIFO_CLR		0x09
++#define IT66121_DDC_COMMAND_ABORT		0x0f
++#define IT66121_DDC_STATUS_REG			0x16
++#define IT66121_DDC_STATUS_TX_DONE		BIT(7)
++#define IT66121_DDC_STATUS_NOACK		BIT(5)
++#define IT66121_DDC_STATUS_WAIT_BUS		BIT(4)
++#define IT66121_DDC_STATUS_ARBI_LOSE		BIT(3)
++#define IT66121_DDC_RD_FIFO_REG			0x17
++#define IT66121_DDC_FIFO_SIZE			32
++
++#define IT66121_HDCP_REG			0x20
++#define IT66121_HDCP_CPDESIRED			BIT(0)
++
++#define IT66121_AFE_DRV_REG			0x61
++#define IT66121_AFE_DRV_RST			BIT(4)
++#define IT66121_AFE_DRV_PWD			BIT(5)
++#define IT66121_AFE_XP_REG			0x62
++#define IT66121_AFE_XP_GAINBIT			BIT(7)
++#define IT66121_AFE_XP_PWDPLL			BIT(6)
++#define IT66121_AFE_XP_ENO			BIT(4)
++#define IT66121_AFE_XP_RESETB			BIT(3)
++#define IT66121_AFE_XP_PWDI			BIT(2)
++#define IT66121_AFE_IP_REG			0x64
++#define IT66121_AFE_IP_GAINBIT			BIT(7)
++#define IT66121_AFE_IP_PWDPLL			BIT(6)
++#define IT66121_AFE_IP_ER0			BIT(3)
++#define IT66121_AFE_IP_RESETB			BIT(2)
++#define IT66121_AFE_IP_EC1			BIT(0)
++#define IT66121_AFE_XP_EC1_REG			0x68
++#define IT66121_AFE_XP_EC1_LOWCLK		BIT(4)
++
++#define IT66121_INPUT_MODE_REG			0x70
++#define IT66121_INPUT_MODE_RGB			0
++#define IT66121_INPUT_MODE_DDR			BIT(2)
++#define IT66121_INPUT_CSC_REG			0x72
++#define IT66121_INPUT_CSC_NO_CONV		0
++
++#define IT66121_HDMI_MODE_REG			0xc0
++#define IT66121_AV_MUTE_REG			0xc1
++#define IT66121_AV_MUTE_ON			BIT(0)
++#define IT66121_PKT_GEN_CTRL_REG		0xc6
++
++#define IT66121_VENDOR_ID			0x4954
++#define IT66121_DEVICE_ID			0x0612
++#define IT66121_AFE_CLK_HIGH_KHZ		80000
++#define IT66121_MIN_CLOCK_HZ			25000000
++#define IT66121_MAX_CLOCK_24BIT_HZ		148500000
++
++struct it66121_priv {
++	struct udevice *supplies[3];
++	struct display_timing timing;
++	u32 bus_width;
++	bool have_timing;
++};
++
++static const char *const it66121_supply_names[] = {
++	"vcn33-supply", "vcn18-supply", "vrf12-supply",
++};
++
++static const struct display_timing it66121_fallback_timing = {
++	.pixelclock = { 74250000, 74250000, 74250000 },
++	.hactive = { 1280, 1280, 1280 },
++	.hfront_porch = { 110, 110, 110 },
++	.hback_porch = { 220, 220, 220 },
++	.hsync_len = { 40, 40, 40 },
++	.vactive = { 720, 720, 720 },
++	.vfront_porch = { 5, 5, 5 },
++	.vback_porch = { 20, 20, 20 },
++	.vsync_len = { 5, 5, 5 },
++	.flags = DISPLAY_FLAGS_HSYNC_HIGH | DISPLAY_FLAGS_VSYNC_HIGH |
++		 DISPLAY_FLAGS_DE_HIGH | DISPLAY_FLAGS_PIXDATA_POSEDGE,
++};
++
++static int it66121_update_bits(struct udevice *dev, u8 reg, u8 mask, u8 val)
++{
++	int old;
++
++	old = dm_i2c_reg_read(dev, reg);
++	if (old < 0)
++		return old;
++
++	return dm_i2c_reg_write(dev, reg, (old & ~mask) | (val & mask));
++}
++
++static int it66121_wait_ddc_ready(struct udevice *dev)
++{
++	const u8 error = IT66121_DDC_STATUS_NOACK |
++		IT66121_DDC_STATUS_WAIT_BUS | IT66121_DDC_STATUS_ARBI_LOSE;
++	int i, val;
++
++	for (i = 0; i < 40; i++) {
++		val = dm_i2c_reg_read(dev, IT66121_DDC_STATUS_REG);
++		if (val < 0)
++			return val;
++		if (val & error)
++			return -EAGAIN;
++		if (val & IT66121_DDC_STATUS_TX_DONE)
++			return 0;
++		mdelay(5);
++	}
++
++	return -ETIMEDOUT;
++}
++
++static int it66121_abort_ddc(struct udevice *dev)
++{
++	int cpdesire, ret, swreset;
++
++	swreset = dm_i2c_reg_read(dev, IT66121_SW_RST_REG);
++	if (swreset < 0)
++		return swreset;
++	cpdesire = dm_i2c_reg_read(dev, IT66121_HDCP_REG);
++	if (cpdesire < 0)
++		return cpdesire;
++
++	ret = dm_i2c_reg_write(dev, IT66121_HDCP_REG,
++			       cpdesire & ~IT66121_HDCP_CPDESIRED);
++	if (ret)
++		return ret;
++	ret = dm_i2c_reg_write(dev, IT66121_SW_RST_REG,
++			       swreset | IT66121_SW_RST_HDCP);
++	if (ret)
++		return ret;
++	ret = dm_i2c_reg_write(dev, IT66121_MASTER_SEL_REG,
++			       IT66121_MASTER_SEL_HOST);
++	if (ret)
++		return ret;
++	ret = dm_i2c_reg_write(dev, IT66121_DDC_COMMAND_REG,
++			       IT66121_DDC_COMMAND_ABORT);
++	if (ret)
++		return ret;
++
++	return it66121_wait_ddc_ready(dev);
++}
++
++static int it66121_read_edid_block(struct udevice *dev, u8 *buf,
++				   unsigned int block)
++{
++	int count, offset = (block % 2) * EDID_SIZE;
++	int remain = EDID_SIZE;
++	int ret;
++
++	block /= 2;
++	while (remain) {
++		count = min(remain, IT66121_DDC_FIFO_SIZE);
++
++		ret = dm_i2c_reg_write(dev, IT66121_DDC_COMMAND_REG,
++				       IT66121_DDC_COMMAND_FIFO_CLR);
++		if (ret)
++			return ret;
++		ret = it66121_wait_ddc_ready(dev);
++		if (ret)
++			return ret;
++
++		ret = dm_i2c_reg_write(dev, IT66121_DDC_OFFSET_REG, offset);
++		if (ret)
++			return ret;
++		ret = dm_i2c_reg_write(dev, IT66121_DDC_BYTE_REG, count);
++		if (ret)
++			return ret;
++		ret = dm_i2c_reg_write(dev, IT66121_DDC_SEGMENT_REG, block);
++		if (ret)
++			return ret;
++		ret = dm_i2c_reg_write(dev, IT66121_DDC_COMMAND_REG,
++				       IT66121_DDC_COMMAND_EDID_READ);
++		if (ret)
++			return ret;
++
++		ret = it66121_wait_ddc_ready(dev);
++		if (ret) {
++			it66121_abort_ddc(dev);
++			return ret;
++		}
++
++		ret = dm_i2c_read(dev, IT66121_DDC_RD_FIFO_REG, buf, count);
++		if (ret)
++			return ret;
++
++		buf += count;
++		offset += count;
++		remain -= count;
++	}
++
++	return 0;
++}
++
++static int it66121_read_edid(struct udevice *dev, u8 *buf, int buf_size)
++{
++	int ret;
++
++	if (buf_size < EDID_SIZE)
++		return -ENOSPC;
++
++	ret = dm_i2c_reg_write(dev, IT66121_MASTER_SEL_REG,
++			       IT66121_MASTER_SEL_HOST);
++	if (ret)
++		return ret;
++	ret = dm_i2c_reg_write(dev, IT66121_DDC_HEADER_REG,
++			       IT66121_DDC_HEADER_EDID);
++	if (ret)
++		return ret;
++
++	ret = it66121_read_edid_block(dev, buf, 0);
++	if (ret)
++		return ret;
++
++	if (buf_size >= EDID_EXT_SIZE && buf[126]) {
++		ret = it66121_read_edid_block(dev, buf + EDID_SIZE, 1);
++		if (!ret)
++			return EDID_EXT_SIZE;
++	}
++
++	return EDID_SIZE;
++}
++
++static bool it66121_mode_valid(void *data,
++			       const struct display_timing *timing)
++{
++	return timing->pixelclock.typ >= IT66121_MIN_CLOCK_HZ &&
++		timing->pixelclock.typ <= IT66121_MAX_CLOCK_24BIT_HZ &&
++		timing->hactive.typ <= 1920 && timing->vactive.typ <= 1200 &&
++		!(timing->flags & (DISPLAY_FLAGS_INTERLACED |
++				    DISPLAY_FLAGS_DOUBLESCAN));
++}
++
++static int it66121_get_display_timing(struct udevice *dev,
++				      struct display_timing *timing)
++{
++	struct it66121_priv *priv = dev_get_priv(dev);
++	u8 edid[EDID_EXT_SIZE];
++	int bpc, len, ret;
++
++	if (!priv->have_timing) {
++		len = it66121_read_edid(dev, edid, sizeof(edid));
++		if (len > 0)
++			ret = edid_get_timing_validate(edid, len, &priv->timing,
++						       &bpc, it66121_mode_valid,
++						       priv);
++		else
++			ret = len;
++
++		if (ret) {
++			dev_warn(dev, "EDID unavailable (%d), using 1280x720\n", ret);
++			priv->timing = it66121_fallback_timing;
++		}
++		priv->have_timing = true;
++	}
++
++	*timing = priv->timing;
++	return 0;
++}
++
++static int it66121_configure_input(struct udevice *dev)
++{
++	struct it66121_priv *priv = dev_get_priv(dev);
++	u8 mode = IT66121_INPUT_MODE_RGB;
++	int ret;
++
++	if (priv->bus_width == 12)
++		mode |= IT66121_INPUT_MODE_DDR;
++
++	ret = dm_i2c_reg_write(dev, IT66121_INPUT_MODE_REG, mode);
++	if (ret)
++		return ret;
++
++	return dm_i2c_reg_write(dev, IT66121_INPUT_CSC_REG,
++				IT66121_INPUT_CSC_NO_CONV);
++}
++
++static int it66121_configure_afe(struct udevice *dev)
++{
++	struct it66121_priv *priv = dev_get_priv(dev);
++	bool high_clock = priv->timing.pixelclock.typ / 1000 >
++			  IT66121_AFE_CLK_HIGH_KHZ;
++	int ret;
++
++	ret = dm_i2c_reg_write(dev, IT66121_AFE_DRV_REG,
++			       IT66121_AFE_DRV_RST);
++	if (ret)
++		return ret;
++
++	ret = it66121_update_bits(dev, IT66121_AFE_XP_REG,
++				  IT66121_AFE_XP_GAINBIT | IT66121_AFE_XP_ENO,
++				  high_clock ? IT66121_AFE_XP_GAINBIT :
++				  IT66121_AFE_XP_ENO);
++	if (ret)
++		return ret;
++	ret = it66121_update_bits(dev, IT66121_AFE_IP_REG,
++				  IT66121_AFE_IP_GAINBIT | IT66121_AFE_IP_ER0,
++				  high_clock ? IT66121_AFE_IP_GAINBIT :
++				  IT66121_AFE_IP_ER0);
++	if (ret)
++		return ret;
++	ret = it66121_update_bits(dev, IT66121_AFE_IP_REG,
++				  IT66121_AFE_IP_EC1,
++				  high_clock ? 0 : IT66121_AFE_IP_EC1);
++	if (ret)
++		return ret;
++	ret = it66121_update_bits(dev, IT66121_AFE_XP_EC1_REG,
++				  IT66121_AFE_XP_EC1_LOWCLK,
++				  high_clock ? 0 : IT66121_AFE_XP_EC1_LOWCLK);
++	if (ret)
++		return ret;
++
++	ret = it66121_update_bits(dev, IT66121_SW_RST_REG,
++				  IT66121_SW_RST_REF | IT66121_SW_RST_VID, 0);
++	if (ret)
++		return ret;
++
++	return dm_i2c_reg_write(dev, IT66121_AFE_DRV_REG, 0);
++}
++
++static int it66121_attach(struct udevice *dev)
++{
++	int ret;
++
++	if (!dev_get_priv(dev))
++		return -ENODEV;
++
++	/* DVI-compatible TMDS is enough for a video-only U-Boot console. */
++	ret = dm_i2c_reg_write(dev, IT66121_HDMI_MODE_REG, 0);
++	if (ret)
++		return ret;
++	ret = it66121_update_bits(dev, IT66121_CLK_BANK_REG,
++				  IT66121_CLK_BANK_PWROFF_TXCLK,
++				  IT66121_CLK_BANK_PWROFF_TXCLK);
++	if (ret)
++		return ret;
++	ret = it66121_configure_input(dev);
++	if (ret)
++		return ret;
++	ret = it66121_configure_afe(dev);
++	if (ret)
++		return ret;
++	ret = it66121_update_bits(dev, IT66121_CLK_BANK_REG,
++				  IT66121_CLK_BANK_PWROFF_TXCLK, 0);
++	if (ret)
++		return ret;
++	ret = it66121_update_bits(dev, IT66121_AV_MUTE_REG,
++				  IT66121_AV_MUTE_ON, 0);
++	if (ret)
++		return ret;
++
++	return dm_i2c_reg_write(dev, IT66121_PKT_GEN_CTRL_REG, 0);
++}
++
++static int it66121_check_attached(struct udevice *dev)
++{
++	int val = dm_i2c_reg_read(dev, IT66121_SYS_STATUS_REG);
++
++	if (val < 0)
++		return val;
++
++	return val & IT66121_SYS_STATUS_HPDETECT ? 0 : -ENOTCONN;
++}
++
++static int it66121_power_on(struct udevice *dev)
++{
++	int ret;
++
++	ret = it66121_update_bits(dev, IT66121_CLK_BANK_REG,
++				  IT66121_CLK_BANK_PWROFF_RCLK, 0);
++	if (ret)
++		return ret;
++	ret = it66121_update_bits(dev, IT66121_INT_REG,
++				  IT66121_INT_TX_CLK_OFF, 0);
++	if (ret)
++		return ret;
++	ret = it66121_update_bits(dev, IT66121_AFE_DRV_REG,
++				  IT66121_AFE_DRV_PWD | IT66121_AFE_DRV_RST, 0);
++	if (ret)
++		return ret;
++	ret = it66121_update_bits(dev, IT66121_AFE_XP_REG,
++				  IT66121_AFE_XP_PWDI | IT66121_AFE_XP_PWDPLL |
++				  IT66121_AFE_XP_RESETB,
++				  IT66121_AFE_XP_RESETB);
++	if (ret)
++		return ret;
++	ret = it66121_update_bits(dev, IT66121_AFE_IP_REG,
++				  IT66121_AFE_IP_PWDPLL | IT66121_AFE_IP_RESETB,
++				  IT66121_AFE_IP_RESETB);
++	if (ret)
++		return ret;
++	ret = it66121_update_bits(dev, IT66121_SW_RST_REG,
++				  IT66121_SW_RST_REF, IT66121_SW_RST_REF);
++	if (ret)
++		return ret;
++
++	mdelay(50);
++	return 0;
++}
++
++static int it66121_probe(struct udevice *dev)
++{
++	struct video_bridge_priv *uc_priv = dev_get_uclass_priv(dev);
++	struct it66121_priv *priv = dev_get_priv(dev);
++	ofnode endpoint;
++	u16 device_id, vendor_id;
++	int i, ret, val;
++
++	for (i = 0; i < ARRAY_SIZE(it66121_supply_names); i++) {
++		ret = device_get_supply_regulator(dev, it66121_supply_names[i],
++						  &priv->supplies[i]);
++		if (ret) {
++			dev_err(dev, "missing %s (%d)\n",
++				it66121_supply_names[i], ret);
++			return ret;
++		}
++		ret = regulator_set_enable_if_allowed(priv->supplies[i], true);
++		if (ret) {
++			dev_err(dev, "failed to enable %s (%d)\n",
++				it66121_supply_names[i], ret);
++			return ret;
++		}
++	}
++
++	if (uc_priv->reset.dev) {
++		ret = dm_gpio_set_value(&uc_priv->reset, true);
++		if (ret)
++			return ret;
++		mdelay(20);
++		ret = dm_gpio_set_value(&uc_priv->reset, false);
++		if (ret)
++			return ret;
++		mdelay(20);
++	}
++
++	val = dm_i2c_reg_read(dev, IT66121_VENDOR_ID0_REG);
++	if (val < 0)
++		return val;
++	vendor_id = val;
++	val = dm_i2c_reg_read(dev, IT66121_VENDOR_ID1_REG);
++	if (val < 0)
++		return val;
++	vendor_id |= val << 8;
++	val = dm_i2c_reg_read(dev, IT66121_DEVICE_ID0_REG);
++	if (val < 0)
++		return val;
++	device_id = val;
++	val = dm_i2c_reg_read(dev, IT66121_DEVICE_ID1_REG);
++	if (val < 0)
++		return val;
++	device_id |= (val & IT66121_DEVICE_ID1_MASK) << 8;
++	if (vendor_id != IT66121_VENDOR_ID || device_id != IT66121_DEVICE_ID) {
++		dev_err(dev, "unexpected chip ID %04x:%04x\n",
++			vendor_id, device_id);
++		return -ENODEV;
++	}
++
++	endpoint = ofnode_graph_get_endpoint_by_regs(dev_ofnode(dev), 0, -1);
++	if (!ofnode_valid(endpoint))
++		return -EINVAL;
++	priv->bus_width = ofnode_read_u32_default(endpoint, "bus-width", 24);
++	if (priv->bus_width != 12 && priv->bus_width != 24) {
++		dev_err(dev, "invalid bus width %u\n", priv->bus_width);
++		return -EINVAL;
++	}
++
++	ret = it66121_power_on(dev);
++	if (ret)
++		return ret;
++
++	dev_info(dev, "IT66121 video bridge detected\n");
++	return 0;
++}
++
++static const struct video_bridge_ops it66121_ops = {
++	.attach = it66121_attach,
++	.check_attached = it66121_check_attached,
++	.get_display_timing = it66121_get_display_timing,
++	.read_edid = it66121_read_edid,
++};
++
++static const struct udevice_id it66121_ids[] = {
++	{ .compatible = "ite,it66121" },
++	{ }
++};
++
++U_BOOT_DRIVER(it66121) = {
++	.name = "ite_it66121",
++	.id = UCLASS_VIDEO_BRIDGE,
++	.of_match = it66121_ids,
++	.probe = it66121_probe,
++	.ops = &it66121_ops,
++	.priv_auto = sizeof(struct it66121_priv),
++};
+diff --git a/drivers/video/tidss/tidss_drv.c b/drivers/video/tidss/tidss_drv.c
+index 790ff6e..25a834b 100644
+--- a/drivers/video/tidss/tidss_drv.c
++++ b/drivers/video/tidss/tidss_drv.c
+@@ -22,6 +22,7 @@
+ #include <regmap.h>
+ #include <cpu_func.h>
+ #include <media_bus_format.h>
++#include <video_bridge.h>
+ 
+ #include <asm/io.h>
+ #include <asm/cache.h>
+@@ -615,13 +616,15 @@ static void dss_vid_csc_enable(struct tidss_drv_priv *priv, u32 hw_plane,
+ 	VID_REG_FLD_MOD(priv, hw_plane, DSS_VID_ATTRIBUTES, !!enable, 9, 9);
+ }
+ 
+-int dss_plane_setup(struct tidss_drv_priv *priv, u32 hw_plane, u32 hw_videoport)
++int dss_plane_setup(struct tidss_drv_priv *priv, u32 hw_plane,
++		    u32 hw_videoport, const struct display_timing *timing)
+ {
+ 	VID_REG_FLD_MOD(priv, hw_plane, DSS_VID_ATTRIBUTES,
+ 			priv->pixel_format, 6, 1);
+ 
+ 	dss_vid_write(priv, hw_plane, DSS_VID_PICTURE_SIZE,
+-		      ((LCD_MAX_WIDTH - 1) | ((LCD_MAX_HEIGHT - 1) << 16)));
++		      ((timing->hactive.typ - 1) |
++		       ((timing->vactive.typ - 1) << 16)));
+ 
+ 	dss_vid_csc_enable(priv, hw_plane, false);
+ 
+@@ -719,10 +722,10 @@ bool is_pipeline_components_enabled(ofnode endpoint, ofnode prev)
+ bool is_pipeline_components_enabled(ofnode endpoint, ofnode prev)
+ {
+ 	ofnode ports_parent = ofnode_graph_get_port_parent(endpoint);
+-	ofnode ports = ofnode_find_subnode(ports_parent, "ports");
++	ofnode ports;
+ 	ofnode port, local_endpoint, remote_endpoint;
+ 
+-	if (!ofnode_valid(ports) || !ofnode_valid(ports_parent))
++	if (!ofnode_valid(ports_parent))
+ 		return false;
+ 
+ 	if (strstr(ofnode_get_name(ports_parent), "dss"))
+@@ -734,6 +737,13 @@ bool is_pipeline_components_enabled(ofnode endpoint, ofnode prev)
+ 		 * if dss is reached, return true.
+ 		 */
+ 		return true;
++
++	ports = ofnode_find_subnode(ports_parent, "ports");
++	if (!ofnode_valid(ports)) {
++		/* Graph sinks such as hdmi-connector use a single port node. */
++		port = ofnode_find_subnode(ports_parent, "port");
++		return ofnode_valid(port) && ofnode_is_enabled(ports_parent);
++	}
+ 
+ 	/*
+ 	 *Traverse all endpoints of the ports node.
+@@ -815,6 +825,19 @@ static int tidss_enable_pipeline_components(struct tidss_drv_priv *priv)
+ 				 * initialize it only and then check for other videoports
+ 				 */
+ 				break;
++			} else if (priv->feat->vp_bus_type[hw_videoport] == DSS_VP_DPI) {
++				ret = uclass_get_device_by_endpoint(UCLASS_VIDEO_BRIDGE, priv->dev,
++								    hw_videoport, -1,
++								    &priv->bridges[hw_videoport]);
++				if (ret) {
++					dev_warn(priv->dev,
++						 "DPI bridge on port %d is unavailable (%d)\n",
++						 hw_videoport, ret);
++					continue;
++				}
++
++				priv->active_hw_vps[active_pipelines++] = hw_videoport;
++				break;
+ 			}
+ 		}
+ 	}
+@@ -829,8 +852,10 @@ static int tidss_drv_probe(struct udevice *dev)
+ 	struct video_uc_plat *uc_plat = dev_get_uclass_plat(dev);
+ 	struct video_priv *uc_priv = dev_get_uclass_priv(dev);
+ 	struct tidss_drv_priv *priv = dev_get_priv(dev);
++	struct udevice *bridge;
+ 	struct udevice *panel = NULL;
+ 	struct display_timing timings;
++	u32 first_vp;
+ 	unsigned int i;
+ 	int ret = 0;
+ 	const char *mode;
+@@ -859,35 +884,56 @@ static int tidss_drv_probe(struct udevice *dev)
+ 		return ret;
+ 	}
+ 
+-	ret = uclass_first_device_err(UCLASS_PANEL, &panel);
+-	if (ret) {
+-		if (ret != -ENODEV)
+-			dev_err(dev, "panel device error %d\n", ret);
+-		return ret;
+-	}
++	first_vp = priv->active_hw_vps[0];
++	if (priv->bridges[first_vp]) {
++		ret = video_bridge_get_display_timing(priv->bridges[first_vp],
++						      &timings);
++		if (ret) {
++			dev_err(dev, "bridge display timing error %d\n", ret);
++			return ret;
++		}
+ 
+-	ret = panel_get_display_timing(panel, &timings);
+-	if (ret) {
+-		ret = ofnode_decode_panel_timing(dev_ofnode(panel),
+-						 &timings);
++		priv->bus_format = &dss_bus_formats[3];
++	} else {
++		ret = uclass_first_device_err(UCLASS_PANEL, &panel);
+ 		if (ret) {
+-			dev_err(dev, "decode display timing error %d\n", ret);
++			if (ret != -ENODEV)
++				dev_err(dev, "panel device error %d\n", ret);
+ 			return ret;
+ 		}
++
++		ret = panel_get_display_timing(panel, &timings);
++		if (ret) {
++			ret = ofnode_decode_panel_timing(dev_ofnode(panel),
++							 &timings);
++			if (ret) {
++				dev_err(dev, "decode display timing error %d\n", ret);
++				return ret;
++			}
++		}
++
++		mode = ofnode_read_string(dev_ofnode(panel), "data-mapping");
++		if (!mode) {
++			debug("%s: Could not read mode property\n", dev->name);
++			return -EINVAL;
++		}
++
++		if (!strcmp(mode, "vesa-24"))
++			priv->bus_format = &dss_bus_formats[7];
++		else
++			priv->bus_format = &dss_bus_formats[8];
+ 	}
+ 
+-	mode = ofnode_read_string(dev_ofnode(panel), "data-mapping");
+-	if (!mode) {
+-		debug("%s: Could not read mode property\n", dev->name);
+-		return -EINVAL;
++	if (timings.hactive.typ > LCD_MAX_WIDTH ||
++	    timings.vactive.typ > LCD_MAX_HEIGHT) {
++		dev_err(dev, "display mode %ux%u exceeds framebuffer\n",
++			timings.hactive.typ, timings.vactive.typ);
++		return -ERANGE;
+ 	}
+ 
+ 	uc_priv->bpix = VIDEO_BPP32;
+-
+-	if (!strcmp(mode, "vesa-24"))
+-		priv->bus_format = &dss_bus_formats[7];
+-	else
+-		priv->bus_format = &dss_bus_formats[8];
++	uc_priv->xsize = timings.hactive.typ;
++	uc_priv->ysize = timings.vactive.typ;
+ 
+ 	/* Common address */
+ 	priv->base_common = dev_remap_addr_name(dev, priv->feat->common);
+@@ -907,7 +953,8 @@ static int tidss_drv_probe(struct udevice *dev)
+ 	dss_vid_write(priv, 0, DSS_VID_BA_EXT_1, (u64)uc_plat->base >> 32);
+ 
+ 	for (i = 0; i < priv->active_pipelines; i++) {
+-		ret = dss_plane_setup(priv, 0, priv->active_hw_vps[i]);
++		ret = dss_plane_setup(priv, 0, priv->active_hw_vps[i],
++				      &timings);
+ 		if (ret) {
+ 			dss_plane_enable(priv, 0, false);
+ 				return ret;
+@@ -923,9 +970,6 @@ static int tidss_drv_probe(struct udevice *dev)
+ 		priv->base_vp[i] = dev_remap_addr_name(dev, priv->feat->vp_name[i]);
+ 	}
+ 
+-	uc_priv->xsize = timings.hactive.typ;
+-	uc_priv->ysize = timings.vactive.typ;
+-
+ 	for (i = 0; i < priv->active_pipelines; i++) {
+ 
+ 		ret = clk_get_by_name(dev,
+@@ -942,10 +986,20 @@ static int tidss_drv_probe(struct udevice *dev)
+ 		/* Video Port cloks */
+ 		dss_vp_enable_clk(priv, priv->active_hw_vps[i]);
+ 
+-		dss_vp_set_clk_rate(priv, priv->active_hw_vps[i], timings.pixelclock.typ * 1000);
++		dss_vp_set_clk_rate(priv, priv->active_hw_vps[i],
++				    timings.pixelclock.typ);
+ 
+ 		dss_vp_prepare(priv, priv->active_hw_vps[i]);
+ 		dss_vp_enable(priv, priv->active_hw_vps[i], &timings);
++
++		bridge = priv->bridges[priv->active_hw_vps[i]];
++		if (bridge) {
++			ret = video_bridge_attach(bridge);
++			if (ret) {
++				dev_err(dev, "video bridge attach error %d\n", ret);
++				return ret;
++			}
++		}
+ 	}
+ 
+ 	dss_vp_init(priv);
+@@ -1009,6 +1063,6 @@ U_BOOT_DRIVER(tidss_drv) = {
+ #if CONFIG_IS_ENABLED(VIDEO_REMOVE)
+-	.flags = DM_FLAG_OS_PREPARE,
++	.flags = DM_FLAG_PRE_RELOC | DM_FLAG_OS_PREPARE,
+ #else
+-	.flags = DM_FLAG_OS_PREPARE | DM_FLAG_LEAVE_PD_ON,
++	.flags = DM_FLAG_PRE_RELOC | DM_FLAG_OS_PREPARE | DM_FLAG_LEAVE_PD_ON,
+ #endif
+ };
+diff --git a/drivers/video/tidss/tidss_drv.h b/drivers/video/tidss/tidss_drv.h
+index 3d36b45..295186f 100644
+--- a/drivers/video/tidss/tidss_drv.h
++++ b/drivers/video/tidss/tidss_drv.h
+@@ -127,6 +127,7 @@ struct tidss_drv_priv {
+ 	u32 memory_bandwidth_limit;
+ 	unsigned int num_oldis;
+ 	struct tidss_oldi *oldis[TIDSS_MAX_OLDI_TXES];
++	struct udevice *bridges[TIDSS_MAX_PORTS];
+ 	u8 active_hw_vps[TIDSS_MAX_PORTS];
+ 	u8 active_pipelines;
+ };

@@ -15,9 +15,15 @@ use sha2::{Digest, Sha256};
 use xz2::read::XzDecoder;
 use zstd::stream::read::Decoder as ZstdDecoder;
 
+use crate::boot_patch::{BootPatchReport, patch_installed_boot_media, target_needs_boot_patch};
 use crate::device::InstallTarget;
 use crate::manifest::{ImageEntry, ImageFormat};
 use crate::memory::ensure_image_memory;
+
+const WRITE_BUFFER_SIZE: usize = 128 * 1024;
+const WRITE_SYNC_INTERVAL: u64 = 64 * 1024 * 1024;
+#[cfg(target_os = "linux")]
+const MEMORY_LOG_PATH: &str = "/run/tobi-memory.log";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum RunMode {
@@ -108,6 +114,7 @@ fn run_live_install(request: &InstallRequest, tx: &Sender<InstallEvent>) -> anyh
         bail!("mock images cannot be written in live mode");
     }
     ensure_image_memory(&request.image)?;
+    log_memory_snapshot("live install: start");
 
     let attempts = if is_remote_image(&request.image) {
         3
@@ -128,7 +135,8 @@ fn run_live_install(request: &InstallRequest, tx: &Sender<InstallEvent>) -> anyh
 
         match write_image_once(request, tx, attempt, attempts) {
             Ok(written) => {
-                complete_successful_live_install(written, request, tx)?;
+                let boot_patch = patch_boot_media_after_install(request, tx)?;
+                complete_successful_live_install(written, request, tx, boot_patch.as_ref())?;
                 return Ok(());
             }
             Err(error) if attempt < attempts && is_retryable_download_error(&error) => {
@@ -157,6 +165,7 @@ fn write_image_once(
     } else {
         "Opening source image".to_string()
     }))?;
+    log_memory_snapshot("install attempt: opening source");
     let source = open_image_source(&request.image, request.proxy_url.as_deref())?;
     let hashing_source = HashingReader::new(source);
     let mut decoded = decoder_for_format(request.image.format, hashing_source)?;
@@ -168,11 +177,13 @@ fn write_image_once(
     )))?;
 
     let target = open_target(&request.target.path)?;
-    let mut writer = BufWriter::new(target);
+    let mut writer = BufWriter::with_capacity(WRITE_BUFFER_SIZE, target);
     let mut output_hash = Sha256::new();
     let total = request.image.extract_size;
     let mut written = 0_u64;
-    let mut buffer = [0_u8; 1024 * 256];
+    let mut last_sync = 0_u64;
+    let mut last_memory_log = 0_u64;
+    let mut buffer = [0_u8; WRITE_BUFFER_SIZE];
 
     loop {
         let count = decoded
@@ -193,13 +204,34 @@ fn write_image_once(
             source_current: Some(decoded.get_ref().bytes_read()),
             source_total: request.image.image_download_size,
         })?;
+
+        if written.saturating_sub(last_sync) >= WRITE_SYNC_INTERVAL {
+            writer.flush().context("failed to flush target writes")?;
+            writer
+                .get_ref()
+                .sync_data()
+                .context("failed to sync target data")?;
+            drop_written_cache(writer.get_ref(), last_sync, written - last_sync);
+            last_sync = written;
+        }
+
+        if written.saturating_sub(last_memory_log) >= WRITE_SYNC_INTERVAL {
+            log_memory_snapshot("install attempt: writing image");
+            last_memory_log = written;
+        }
     }
     writer.flush().context("failed to flush target writes")?;
     writer
         .get_ref()
         .sync_all()
         .context("failed to sync target writes")?;
+    drop_written_cache(
+        writer.get_ref(),
+        last_sync,
+        written.saturating_sub(last_sync),
+    );
     drop(writer);
+    log_memory_snapshot("install attempt: write complete");
 
     let downloaded = decoded.get_ref().bytes_read();
     if !request.image.format.is_compressed() {
@@ -222,10 +254,42 @@ fn write_image_once(
     Ok(written)
 }
 
+fn patch_boot_media_after_install(
+    request: &InstallRequest,
+    tx: &Sender<InstallEvent>,
+) -> anyhow::Result<Option<BootPatchReport>> {
+    if !target_needs_boot_patch(&request.target) {
+        return Ok(None);
+    }
+
+    tx.send(InstallEvent::Phase(
+        "Patching installed OS boot media for eMMC boot".to_string(),
+    ))?;
+    tx.send(InstallEvent::Progress {
+        phase: "Patching boot media".to_string(),
+        current: 0,
+        total: Some(1),
+        source_current: None,
+        source_total: None,
+    })?;
+
+    let report = patch_installed_boot_media(&request.target);
+    tx.send(InstallEvent::Progress {
+        phase: "Patching boot media".to_string(),
+        current: 1,
+        total: Some(1),
+        source_current: None,
+        source_total: None,
+    })?;
+    tx.send(InstallEvent::Phase(report.phase_message()))?;
+    Ok(Some(report))
+}
+
 fn complete_successful_live_install(
     written: u64,
     request: &InstallRequest,
     tx: &Sender<InstallEvent>,
+    boot_patch: Option<&BootPatchReport>,
 ) -> anyhow::Result<()> {
     tx.send(InstallEvent::Phase(format!(
         "Install complete. Wrote {} bytes to {}. Syncing target media.",
@@ -233,14 +297,18 @@ fn complete_successful_live_install(
         request.target.path.display()
     )))?;
     let _ = Command::new("sync").status();
+    log_memory_snapshot("live install: complete");
 
     let reboot_line = if request.reboot_after_install {
         "\n\nReady to reboot into the installed image."
     } else {
         ""
     };
+    let boot_patch_line = boot_patch
+        .map(|report| format!("\n\n{}", report.final_message()))
+        .unwrap_or_default();
     tx.send(InstallEvent::Complete(format!(
-        "Install succeeded.\n\nImage: {}\nTarget: {}\nWrote: {} bytes{reboot_line}",
+        "Install succeeded.\n\nImage: {}\nTarget: {}\nWrote: {} bytes{boot_patch_line}{reboot_line}",
         request.image.name,
         request.target.path.display(),
         written
@@ -332,6 +400,73 @@ fn open_target(path: &Path) -> anyhow::Result<File> {
         .write(true)
         .open(path)
         .with_context(|| format!("failed to open target {} for writing", path.display()))
+}
+
+fn drop_written_cache(file: &File, offset: u64, len: u64) {
+    if len == 0 {
+        return;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::AsRawFd;
+
+        let offset = offset.min(i64::MAX as u64) as libc::off_t;
+        let len = len.min(i64::MAX as u64) as libc::off_t;
+        unsafe {
+            libc::posix_fadvise(file.as_raw_fd(), offset, len, libc::POSIX_FADV_DONTNEED);
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = file;
+        let _ = offset;
+        let _ = len;
+    }
+}
+
+fn log_memory_snapshot(stage: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(mut log) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(MEMORY_LOG_PATH)
+        else {
+            return;
+        };
+
+        let _ = writeln!(log, "\n== {stage} ==");
+        if let Ok(output) = Command::new("date").arg("-u").output()
+            && output.status.success()
+        {
+            let _ = write!(log, "time: {}", String::from_utf8_lossy(&output.stdout));
+        }
+
+        if let Ok(meminfo) = fs::read_to_string("/proc/meminfo") {
+            for line in meminfo.lines() {
+                if line.starts_with("MemTotal:")
+                    || line.starts_with("MemFree:")
+                    || line.starts_with("MemAvailable:")
+                    || line.starts_with("SwapTotal:")
+                    || line.starts_with("SwapFree:")
+                    || line.starts_with("Dirty:")
+                    || line.starts_with("Writeback:")
+                    || line.starts_with("Slab:")
+                    || line.starts_with("SReclaimable:")
+                    || line.starts_with("Cma")
+                {
+                    let _ = writeln!(log, "{line}");
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = stage;
+    }
 }
 
 fn verify_hash(label: &str, expected: Option<&str>, actual: &str) -> anyhow::Result<()> {
@@ -670,6 +805,7 @@ mod tests {
                 extract_sha256: Some(digest),
                 image_download_size: Some(8),
                 extract_size: Some(8),
+                decoder_memory_size: None,
                 bmap_url: None,
                 signature_url: None,
             },
@@ -713,6 +849,7 @@ mod tests {
                 extract_sha256: None,
                 image_download_size: None,
                 extract_size: None,
+                decoder_memory_size: None,
                 bmap_url: None,
                 signature_url: None,
             },
@@ -734,6 +871,33 @@ mod tests {
         let (tx, _rx) = mpsc::channel();
         let error = run_live_install(&request, &tx).expect_err("should refuse");
         assert!(error.to_string().contains("--allow-write"));
+    }
+
+    #[test]
+    fn sd_success_message_does_not_show_boot_patch_result() {
+        let request = request_for_success_message(TargetKind::Sd);
+        let (tx, rx) = mpsc::channel();
+
+        complete_successful_live_install(123, &request, &tx, None).expect("complete");
+
+        let complete = receive_complete_message(rx);
+        assert!(!complete.contains("Boot patch"));
+    }
+
+    #[test]
+    fn emmc_success_message_shows_boot_patch_result() {
+        let request = request_for_success_message(TargetKind::Emmc);
+        let report = BootPatchReport::patched(
+            "updated uEnv.txt for eMMC boot on TI Yocto images",
+            vec!["Set mmcdev=0 and rootfs bootpart=0:2.".to_string()],
+        );
+        let (tx, rx) = mpsc::channel();
+
+        complete_successful_live_install(123, &request, &tx, Some(&report)).expect("complete");
+
+        let complete = receive_complete_message(rx);
+        assert!(complete.contains("Boot patch: applied"));
+        assert!(complete.contains("mmcdev=0"));
     }
 
     #[test]
@@ -806,6 +970,58 @@ mod tests {
         let mut encoder = XzWriter::new(Vec::new(), 6);
         encoder.write_all(payload).expect("write xz payload");
         encoder.finish().expect("finish xz stream")
+    }
+
+    fn request_for_success_message(kind: TargetKind) -> InstallRequest {
+        InstallRequest {
+            image: ImageEntry {
+                id: "test".to_string(),
+                name: "test image".to_string(),
+                description: "test".to_string(),
+                devices: vec![],
+                category: Some("Test".to_string()),
+                recommended: false,
+                version: "0".to_string(),
+                release_date: "2026-05-07".to_string(),
+                channel: "dev".to_string(),
+                url: "file:///tmp/test.img".to_string(),
+                format: ImageFormat::Raw,
+                image_download_sha256: None,
+                extract_sha256: None,
+                image_download_size: None,
+                extract_size: None,
+                decoder_memory_size: None,
+                bmap_url: None,
+                signature_url: None,
+            },
+            target: InstallTarget {
+                id: "target".to_string(),
+                name: "target".to_string(),
+                path: match kind {
+                    TargetKind::Sd => "/dev/mmcblk1".into(),
+                    TargetKind::Emmc => "/dev/mmcblk0".into(),
+                    _ => "/dev/test".into(),
+                },
+                size_bytes: None,
+                kind,
+                removable: kind != TargetKind::Emmc,
+                partitions: Vec::new(),
+                warning: None,
+            },
+            run_mode: RunMode::Live,
+            allow_write: true,
+            proxy_url: None,
+            reboot_after_install: false,
+        }
+    }
+
+    fn receive_complete_message(rx: Receiver<InstallEvent>) -> String {
+        rx.try_iter()
+            .find_map(|event| match event {
+                InstallEvent::Complete(message) => Some(message),
+                _ => None,
+            })
+            .expect("complete event")
     }
 
     fn range_resume_test_server(payload: Vec<u8>, split: usize) -> String {

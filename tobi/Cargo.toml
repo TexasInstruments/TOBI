@@ -11,6 +11,7 @@ clap = { version = "4.5", features = ["derive"] }
 crossterm = "0.28"
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
 hex = "0.4"
+libc = "0.2"
 ratatui = "0.29"
 qrcode = { version = "0.14", default-features = false }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
@@ -22,3 +23,10 @@ zstd = "0.13"
 
 [dev-dependencies]
 tempfile = "3.10"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -60,7 +60,7 @@ or by setting `TOBI_MANIFEST_URL` in the initramfs environment.
 
 The production image does not embed a downloadable-image catalog. If the board cannot reach the hosted catalog, TOBI falls back to local-image flashing only and asks the user to attach FAT32 media with a compatible image file.
 
-When a proxy is needed, TOBI prompts for UTC system time before the proxy URL so TLS validation can succeed even if automatic time sync failed.
+When a proxy is needed, TOBI prompts for UTC system time first so TLS validation can succeed even if automatic time sync failed. It then lets the user choose the TI proxy (`http://webproxy.ext.ti.com:80`) or enter a manual proxy URL.
 
 ## License
 
@@ -186,3 +186,69 @@ tobi-sd-image-am62pxx-evm.rootfs.wic.bmap
 Replace `am62pxx-evm` with another supported machine to generate that board's TOBI image.
 
 The SD image is user-flashable. It boots TOBI into RAM and leaves the target eMMC free to be overwritten by the installer.
+
+When flashing to eMMC, TOBI runs a post-flash boot patcher before reboot. It mounts the installed boot partition, updates `uEnv.txt` for recognized TI Yocto, TI Debian, and Armbian layouts so U-Boot selects the eMMC MMC index and rootfs partition, and adds an `extlinux/extlinux.conf` eMMC bootflow fallback for Armbian-style images whose built-in U-Boot environment starts on SD. The TUI shows this as an explicit install phase, and the success popup includes the patch result and changed boot settings.
+
+## BeaglePlay U-Boot Menu And Recovery Bundle
+
+The `dev` branch patches TI U-Boot 2026.01 for `MACHINE=beagleplay-ti` with a
+centered TI-red splash for three seconds followed by a ten-second menu on both
+the debug UART and HDMI:
+
+1. Boot an OS from the SD card (`mmc1`, default).
+2. Boot an OS from eMMC (`mmc0`).
+3. Start TOBI Recovery, searching SD and then eMMC.
+
+The regular OS entries support TI's legacy `uEnv.txt` path followed by standard U-Boot bootflow discovery for `boot.scr`, extlinux, and EFI. A missing device, filesystem, boot file, or recovery component reports the error and returns to the menu instead of dropping out of the boot flow.
+
+TOBI SD images place the kernel, initramfs, and board DTB under the boot partition's `/recovery` directory. That directory normally appears as `/boot/recovery` after Linux mounts the boot partition. The root `uEnv.txt` remains compatible with an unmodified TI U-Boot and points it at the recovery payload.
+
+To add the same payload to another WIC image from a layer that depends on `meta-tobi`, inherit the opt-in class in that image or its `.bbappend`:
+
+```bitbake
+inherit tobi-recovery
+```
+
+The class adds `recovery/Image`, `recovery/uInitrd`, and the machine DTBs to `IMAGE_BOOT_FILES`. Check the target WKS boot-partition size before enabling it. It is intentionally not injected into every TI image by default yet: TOBI is a write-capable recovery environment, adds meaningful image size, and needs a defined signing and update policy for secure production systems.
+
+Build the initial BeaglePlay test image with:
+
+```sh
+MACHINE=beagleplay-ti ./yocto/scripts/build-tobi-sd-image-ubuntu-x86_64.sh
+```
+
+The layer carries a video-only IT66121 bridge port and extends TI's TIDSS driver to activate the AM625 DPI pipeline. U-Boot reads the monitor EDID and falls back to 1280x720 at 60 Hz when EDID is unavailable. It emits DVI-compatible TMDS video over the HDMI connector; HDMI audio, HDCP, and runtime hot-plug handling are out of scope. Output remains multiplexed to the UART, so a missing or unsupported display does not remove serial access. Linux uses its normal DRM/TIDSS and IT66121 drivers after boot.
+
+Directly chain-loading a second K3 `u-boot.img` is deliberately not part of this first version. On AM62x, ROM, `tiboot3.bin`, `tispl.bin`, TF-A/OP-TEE, and A53 U-Boot form a staged handoff, and a second U-Boot can depend on state supplied by the earlier stages. The supported path here is to let TOBI U-Boot boot the selected distro's normal OS configuration. Keeping a fully separate stock TI U-Boot should instead use a board-supported alternate boot source or bootloader slot and reboot into that chain.
+
+## Optional TOBI-lite AM62-SIP Test Image
+
+`SK-AM62-SIP` / `am62xxsip-evm` has 512 MiB of integrated LPDDR4. The normal
+all-board build and release matrix therefore use the regular TOBI image for
+this board. TI's AM6254ATL U-Boot and Linux device trees both describe the full
+512 MiB region at `0x80000000`.
+
+The branch retains **TOBI-lite** as an optional constrained-memory diagnostic
+target. It trims the kernel module set, enables RAM-only zram swap, and relaxes
+the `.wic.xz` memory guard for stress testing. It is not required for normal
+AM62-SIP operation and is not selected by the all-board build scripts.
+
+Build the TOBI-lite SD image with:
+
+```sh
+./yocto/scripts/build-tobi-lite-sd-image-ubuntu-x86_64.sh
+```
+
+On Apple silicon:
+
+```sh
+./yocto/scripts/build-tobi-lite-sd-image-ubuntu-arm64.sh
+```
+
+Expected copied artifacts use the `tobi-lite-*` basename, for example:
+
+```text
+out/yocto/tobi-lite-initramfs-am62xxsip-evm.rootfs.cpio.xz
+out/yocto/tobi-lite-sd-image-am62xxsip-evm.rootfs.wic.xz
+out/yocto/tobi-lite-sd-image-am62xxsip-evm.rootfs.wic.bmap
+```

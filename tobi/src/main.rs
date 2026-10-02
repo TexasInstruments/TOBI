@@ -1,5 +1,6 @@
 mod app;
 mod board;
+mod boot_patch;
 mod custom_image;
 mod device;
 mod installer;
@@ -59,6 +60,9 @@ struct Args {
     serial_ui: bool,
 
     #[arg(long)]
+    lite: bool,
+
+    #[arg(long)]
     test_proxy_setup: bool,
 }
 
@@ -103,6 +107,9 @@ fn main() -> anyhow::Result<()> {
         args.proxy,
         warning,
     );
+    if args.lite {
+        app.set_lite_mode(true);
+    }
     if test_proxy_setup {
         app.start_proxy_setup_test(proxy_setup_test_warning());
     }
@@ -127,7 +134,7 @@ fn load_startup_catalog(args: &Args) -> anyhow::Result<(manifest::Catalog, Optio
         Err(error) if manifest::is_remote_source(&args.manifest) => Ok((
             manifest::fallback_catalog(),
             Some(format!(
-                "Could not fetch the online OS catalog. You can still flash a custom local image from attached media. Press P to set UTC time, configure a proxy, and retry, or Enter to continue.\n\n{error:#}"
+                "Could not fetch the online OS catalog. You can still flash a custom local image from attached media. Press P to set UTC time, choose TI proxy or manual proxy, and retry, or Enter to continue.\n\n{error:#}"
             )),
         )),
         Err(error) => {
@@ -138,7 +145,7 @@ fn load_startup_catalog(args: &Args) -> anyhow::Result<(manifest::Catalog, Optio
 }
 
 fn proxy_setup_test_warning() -> String {
-    "Connectivity test mode: DHCP and local IP are present, but the online catalog is treated as unreachable. Set UTC time, enter a proxy URL, and submit to retry the configured catalog.".to_string()
+    "Connectivity test mode: DHCP and local IP are present, but the online catalog is treated as unreachable. Set UTC time, choose TI proxy or manual proxy, and submit to retry the configured catalog.".to_string()
 }
 
 #[cfg(test)]
@@ -171,6 +178,13 @@ mod tests {
         let args = Args::parse_from(["tobi", "--mode", "mock", "--test-proxy-setup"]);
         assert_eq!(args.mode, CliRunMode::Mock);
         assert!(args.test_proxy_setup);
+    }
+
+    #[test]
+    fn lite_mode_is_available_for_low_memory_images() {
+        let args = Args::parse_from(["tobi", "--mode", "mock", "--lite"]);
+        assert_eq!(args.mode, CliRunMode::Mock);
+        assert!(args.lite);
     }
 }
 
@@ -241,6 +255,7 @@ fn run_app(
                 _ if app.screen() == Screen::ProxyConfig => match key.code {
                     KeyCode::Enter => app.submit_proxy_config(),
                     KeyCode::Esc => app.cancel_proxy_config(),
+                    KeyCode::Left | KeyCode::Right => app.toggle_proxy_mode(),
                     KeyCode::Tab | KeyCode::Down => app.next_proxy_field(),
                     KeyCode::BackTab | KeyCode::Up => app.previous_proxy_field(),
                     KeyCode::Backspace => app.proxy_backspace(),
@@ -393,11 +408,21 @@ fn serial_handle_proxy_config_command(app: &mut App, command: &str, lower: &str)
         app.submit_proxy_config();
         return;
     }
+    if matches!(lower, "ti" | "t" | "ti proxy" | "use ti proxy") {
+        app.select_ti_proxy();
+        if !matches!(app.proxy_config_field(), app::ProxyConfigField::Time) {
+            app.submit_proxy_config();
+        }
+        return;
+    }
+    if matches!(lower, "manual" | "m" | "manual proxy") {
+        app.select_manual_proxy();
+        return;
+    }
     if let Some(proxy) = command.strip_prefix("proxy ") {
+        app.select_manual_proxy();
         app.set_proxy_input(proxy.trim().to_string());
-        if matches!(app.proxy_config_field(), app::ProxyConfigField::Time) {
-            app.next_proxy_field();
-        } else {
+        if !matches!(app.proxy_config_field(), app::ProxyConfigField::Time) {
             app.submit_proxy_config();
         }
         return;
@@ -407,11 +432,15 @@ fn serial_handle_proxy_config_command(app: &mut App, command: &str, lower: &str)
         "" | "enter" => app.submit_proxy_config(),
         "n" | "next" | "tab" | "down" => app.next_proxy_field(),
         "p" | "prev" | "previous" | "up" => app.previous_proxy_field(),
+        "left" | "right" => app.toggle_proxy_mode(),
         "b" | "back" | "esc" | "cancel" => app.cancel_proxy_config(),
         _ => match app.proxy_config_field() {
             app::ProxyConfigField::Time => {
                 app.set_proxy_time_input(command.to_string());
                 app.submit_proxy_config();
+            }
+            app::ProxyConfigField::ProxyChoice => {
+                app.warn_proxy_choice_command();
             }
             app::ProxyConfigField::Proxy => {
                 app.set_proxy_input(command.to_string());
@@ -565,13 +594,17 @@ fn serial_render(app: &App) -> anyhow::Result<()> {
             }
             write!(
                 out,
-                "\r\nUTC time: [{}]\r\nProxy: [{}]\r\n",
+                "\r\nUTC time: [{}]\r\nProxy mode: {}\r\nProxy: [{}]\r\n",
                 serial_input_display(app.proxy_time_input(), 19),
-                serial_input_display(app.proxy_input(), 36)
+                match app.proxy_mode() {
+                    app::ProxyMode::Ti => "TI proxy",
+                    app::ProxyMode::Manual => "manual",
+                },
+                serial_input_display(app.active_proxy_url_for_display(), 36)
             )?;
             write!(
                 out,
-                "\r\nType 'time YYYY-MM-DD HH:MM:SS', then 'proxy http://host:port'. Press Enter to submit the active field, N/P to switch fields, or B to cancel.\r\n"
+                "\r\nType 'time YYYY-MM-DD HH:MM:SS', then 'ti' or 'manual'. For manual, type 'proxy http://host:port'. Press Enter to submit the active field, N/P to switch fields, or B to cancel.\r\n"
             )?;
         }
     }

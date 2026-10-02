@@ -46,6 +46,7 @@ pub fn custom_placeholder() -> ImageEntry {
         extract_sha256: None,
         image_download_size: None,
         extract_size: None,
+        decoder_memory_size: None,
         bmap_url: None,
         signature_url: None,
     }
@@ -74,6 +75,7 @@ impl CustomImage {
             extract_sha256: None,
             image_download_size: size_bytes,
             extract_size: None,
+            decoder_memory_size: None,
             bmap_url: None,
             signature_url: None,
         }

@@ -12,10 +12,11 @@ first=1
 for machine in $MACHINES; do
   echo "==> Building TOBI SD image for MACHINE=$machine"
   if [[ "$first" == "1" ]]; then
-    MACHINE="$machine" "$REPO_ROOT/yocto/scripts/build-tobi-sd-image-ubuntu-x86_64.sh"
+    MACHINE="$machine" BITBAKE_TARGET=tobi-sd-image \
+      "$REPO_ROOT/yocto/scripts/build-tobi-sd-image-ubuntu-x86_64.sh"
     first=0
   else
-    SKIP_DOCKER_BUILD=1 SKIP_VOLUME_CHOWN=1 MACHINE="$machine" \
+    SKIP_DOCKER_BUILD=1 SKIP_VOLUME_CHOWN=1 MACHINE="$machine" BITBAKE_TARGET=tobi-sd-image \
       "$REPO_ROOT/yocto/scripts/build-tobi-sd-image-ubuntu-x86_64.sh"
   fi
 done

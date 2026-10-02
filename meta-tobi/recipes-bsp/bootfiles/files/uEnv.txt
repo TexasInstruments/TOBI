@@ -1,8 +1,8 @@
 bootpart=1:1
-bootdir=
+bootdir=/recovery
 finduuid=part uuid ${boot} 1:2 uuid
 
-name_initramfs=uInitrd
+name_initramfs=recovery/uInitrd
 
 uenvcmd=setexpr fdtfile sub ti/ti ti; run bootcmd_ti_mmc
 

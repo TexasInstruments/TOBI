@@ -57,7 +57,7 @@ tobi.manifest=https://example.com/catalog.json
 
 No downloadable-image catalog is embedded into the initramfs. If the hosted catalog cannot be reached at runtime, TOBI keeps running and offers only the local custom-image flow.
 
-If the network is present but a proxy is required, the TUI recovery flow asks the user to set UTC system time first, then enter the proxy URL before retrying the hosted catalog.
+If the network is present but a proxy is required, the TUI recovery flow asks the user to set UTC system time first, then choose the TI proxy (`http://webproxy.ext.ti.com:80`) or enter a manual proxy URL before retrying the hosted catalog.
 
 To force that proxy/time path for board testing, add this kernel argument:
 
@@ -189,11 +189,37 @@ The expected output is a compressed initramfs under the TI deploy directory, usu
 deploy-ti/images/am62pxx-evm/tobi-initramfs-am62pxx-evm.cpio.xz
 ```
 
+## BeaglePlay Recovery Boot Test
+
+`meta-tobi` carries a `u-boot-ti-staging_2026.01.bbappend` for `beagleplay-ti`. It enables the TOBI boot menu on both the UART and HDMI and builds TOBI SD images with their Linux kernel, initramfs, and DTB under the boot filesystem's `/recovery` directory. The U-Boot IT66121 path is video-only and keeps UART output active as a fallback.
+
+```sh
+MACHINE=beagleplay-ti ./yocto/scripts/build-tobi-sd-image-ubuntu-x86_64.sh
+```
+
+With the debug UART and an HDMI monitor connected, verify all of these cases:
+
+1. Let the seven-second timeout expire and confirm the SD entry boots.
+2. Select eMMC and confirm its `uEnv.txt`, boot script, extlinux, or EFI flow boots without scanning SD as a fallback.
+3. Select TOBI Recovery and confirm it loads `/recovery/Image`, `/recovery/uInitrd`, and `/recovery/dtb/ti/k3-am625-beagleplay.dtb`.
+4. Repeat each entry with its media removed or a required file renamed and confirm the menu returns after the error.
+5. Confirm the same menu is visible over HDMI, then repeat a boot with HDMI disconnected and confirm UART operation is unchanged.
+
+For an additional WIC image, opt in from that image recipe or `.bbappend`:
+
+```bitbake
+inherit tobi-recovery
+```
+
+This only populates `IMAGE_BOOT_FILES`; ensure the WKS boot partition has room for the added kernel and initramfs. Do not enable it globally on secure production images until the recovery signing, rollback, and update policy is defined.
+
 ## Next Integration Work
 
 1. Build a target `tobi` binary through a Yocto-native Rust recipe or through a cross-build job.
-2. Add U-Boot/FIT packaging so supported boards can boot kernel + DTB + TOBI initramfs fully into RAM from eMMC.
-3. Add USB/SD automount handling before TOBI starts, so custom local images are visible.
+2. Convert the three-file recovery payload to a signed FIT and define recovery update/rollback behavior.
+3. Generalize the tested BeaglePlay U-Boot menu media mappings to the remaining TI EVMs.
+4. Hardware-validate the U-Boot IT66121 EDID and 1280x720 fallback paths across several monitors.
+5. Add USB/SD automount handling before TOBI starts, so custom local images are visible.
 
 ## License
 

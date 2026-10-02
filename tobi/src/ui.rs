@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Wrap};
 
-use crate::app::{App, ObstacleKind, ProxyConfigField, RunnerObstacle, Screen};
+use crate::app::{App, ObstacleKind, ProxyConfigField, ProxyMode, RunnerObstacle, Screen};
 use crate::custom_image::CustomImage;
 use crate::device::{InstallTarget, format_bytes};
 use crate::installer::RunMode;
@@ -417,8 +417,24 @@ fn render_proxy_config(frame: &mut Frame, app: &App, area: Rect) {
     let popup = centered_rect(78, 84, area);
     frame.render_widget(Clear, popup);
     let time_active = app.proxy_config_field() == ProxyConfigField::Time;
+    let choice_active = app.proxy_config_field() == ProxyConfigField::ProxyChoice;
     let proxy_active = app.proxy_config_field() == ProxyConfigField::Proxy;
 
+    let ti_style = if app.proxy_mode() == ProxyMode::Ti {
+        Style::default().fg(TI_WHITE).bg(TI_RED)
+    } else {
+        Style::default().fg(TI_TEAL)
+    };
+    let manual_style = if app.proxy_mode() == ProxyMode::Manual {
+        Style::default().fg(TI_WHITE).bg(TI_RED)
+    } else {
+        Style::default().fg(TI_TEAL)
+    };
+    let choice_label = if choice_active {
+        "> Proxy mode"
+    } else {
+        "  Proxy mode"
+    };
     let mut lines = vec![
         Line::from(Span::styled(
             "Set Time and Configure Proxy",
@@ -428,10 +444,22 @@ fn render_proxy_config(frame: &mut Frame, app: &App, area: Rect) {
         input_line("UTC time", app.proxy_time_input(), time_active, 19),
         Line::from("Format: YYYY-MM-DD HH:MM:SS"),
         Line::from(""),
-        input_line("Proxy", app.proxy_input(), proxy_active, 36),
+        Line::from(vec![
+            Span::styled(choice_label, Style::default().fg(TI_TEAL)),
+            Span::raw(": "),
+            Span::styled("TI proxy", ti_style),
+            Span::raw("   "),
+            Span::styled("Manual", manual_style),
+        ]),
+        Line::from(format!("TI proxy: {}", crate::app::TI_PROXY_URL)),
+        Line::from(""),
+        input_line("Manual proxy", app.proxy_input(), proxy_active, 36),
         Line::from("Example: http://proxy.example.com:8080"),
         Line::from(""),
-        Line::from("Enter advances/retries. Up/Down switches fields. Esc keeps local images."),
+        Line::from(
+            "Enter advances/retries. T selects TI. M selects manual. Up/Down switches fields.",
+        ),
+        Line::from("Esc keeps local images."),
     ];
 
     if let Some(warning) = app.warning() {
@@ -599,12 +627,32 @@ fn render_installing(frame: &mut Frame, app: &App, area: Rect) {
         inner[1],
     );
 
-    render_runner_game(frame, app, inner[2]);
+    if app.lite_mode() {
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from(Span::styled(
+                    "TOBI-lite compact install display",
+                    Style::default().fg(TI_TEAL).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from("Memory snapshots are written to /run/tobi-memory.log."),
+                Line::from("Serial handoff remains available from ttyS2 with SERIAL."),
+            ])
+            .block(panel_block(" Low Memory ")),
+            inner[2],
+        );
+    } else {
+        render_runner_game(frame, app, inner[2]);
+    }
 
     frame.render_widget(
-        Paragraph::new("Do not power off the board during a live install. Space/Up jumps.")
-            .alignment(Alignment::Center)
-            .wrap(Wrap { trim: false }),
+        Paragraph::new(if app.lite_mode() {
+            "Do not power off the board during a live install."
+        } else {
+            "Do not power off the board during a live install. Space/Up jumps."
+        })
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: false }),
         inner[3],
     );
 }

@@ -14,7 +14,9 @@ use crate::custom_image::{
 use crate::device::{DeviceMode, InstallTarget, TargetKind, list_devices};
 use crate::installer::{InstallEvent, InstallRequest, RunMode, reboot_now, start_install};
 use crate::manifest::{self, Catalog, ImageEntry};
-use crate::memory::{MemoryCheck, check_image_memory};
+use crate::memory::{MemoryCheck, check_image_memory, set_lite_xz_memory_guard};
+
+pub const TI_PROXY_URL: &str = "http://webproxy.ext.ti.com:80";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Screen {
@@ -48,7 +50,14 @@ pub struct SystemStatus {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProxyConfigField {
     Time,
+    ProxyChoice,
     Proxy,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProxyMode {
+    Ti,
+    Manual,
 }
 
 #[derive(Clone, Debug)]
@@ -81,11 +90,13 @@ pub struct App {
     custom_images: Vec<CustomImage>,
     run_mode: RunMode,
     allow_write: bool,
+    lite_mode: bool,
     manifest_source: String,
     proxy_url: Option<String>,
     proxy_input: String,
     proxy_time_input: String,
     proxy_config_field: ProxyConfigField,
+    proxy_mode: ProxyMode,
     screen: Screen,
     image_index: usize,
     custom_image_index: usize,
@@ -132,10 +143,12 @@ impl App {
             custom_images: Vec::new(),
             run_mode,
             allow_write,
+            lite_mode: false,
             manifest_source,
             proxy_input: proxy_url.clone().unwrap_or_default(),
             proxy_time_input: current_utc_datetime_input(),
             proxy_config_field: ProxyConfigField::Time,
+            proxy_mode: ProxyMode::Ti,
             proxy_url,
             screen: Screen::Welcome,
             image_index,
@@ -175,6 +188,18 @@ impl App {
 
     pub fn run_mode(&self) -> RunMode {
         self.run_mode
+    }
+
+    pub fn set_lite_mode(&mut self, lite_mode: bool) {
+        self.lite_mode = lite_mode;
+        set_lite_xz_memory_guard(lite_mode);
+        if lite_mode {
+            self.status = "TOBI-lite installer ready. Press Enter to continue.".to_string();
+        }
+    }
+
+    pub fn lite_mode(&self) -> bool {
+        self.lite_mode
     }
 
     pub fn screen(&self) -> Screen {
@@ -256,12 +281,27 @@ impl App {
         &self.proxy_input
     }
 
+    pub fn configured_proxy_url(&self) -> Option<&str> {
+        self.proxy_url.as_deref()
+    }
+
     pub fn proxy_time_input(&self) -> &str {
         &self.proxy_time_input
     }
 
     pub fn proxy_config_field(&self) -> ProxyConfigField {
         self.proxy_config_field
+    }
+
+    pub fn proxy_mode(&self) -> ProxyMode {
+        self.proxy_mode
+    }
+
+    pub fn active_proxy_url_for_display(&self) -> &str {
+        match self.proxy_mode {
+            ProxyMode::Ti => TI_PROXY_URL,
+            ProxyMode::Manual => self.proxy_input(),
+        }
     }
 
     pub fn memory_check(&self) -> Option<MemoryCheck> {
@@ -285,8 +325,8 @@ impl App {
         self.refresh_system_status_now();
         self.start_proxy_config();
         self.warning = Some(warning);
-        self.status =
-            "Connectivity test mode: set UTC time, then enter a proxy URL to retry.".to_string();
+        self.status = "Connectivity test mode: set UTC time, then choose TI proxy or manual proxy."
+            .to_string();
     }
 
     pub fn can_quit(&self) -> bool {
@@ -492,11 +532,11 @@ impl App {
     pub fn start_proxy_config(&mut self) {
         self.warning = None;
         self.proxy_config_field = ProxyConfigField::Time;
+        self.proxy_mode = ProxyMode::Ti;
         self.proxy_time_input.clear();
         self.proxy_input.clear();
         self.screen = Screen::ProxyConfig;
-        self.status =
-            "Enter UTC time first, then enter a proxy URL to retry the online catalog.".to_string();
+        self.status = "Enter UTC time first, then choose TI proxy or manual proxy.".to_string();
     }
 
     pub fn cancel_proxy_config(&mut self) {
@@ -508,6 +548,11 @@ impl App {
         if !ch.is_control() {
             match self.proxy_config_field {
                 ProxyConfigField::Time => self.proxy_time_input.push(ch),
+                ProxyConfigField::ProxyChoice => match ch {
+                    't' | 'T' => self.select_ti_proxy(),
+                    'm' | 'M' => self.select_manual_proxy(),
+                    _ => {}
+                },
                 ProxyConfigField::Proxy => self.proxy_input.push(ch),
             }
         }
@@ -518,6 +563,7 @@ impl App {
             ProxyConfigField::Time => {
                 self.proxy_time_input.pop();
             }
+            ProxyConfigField::ProxyChoice => {}
             ProxyConfigField::Proxy => {
                 self.proxy_input.pop();
             }
@@ -532,19 +578,68 @@ impl App {
         self.proxy_input = value.into();
     }
 
-    pub fn next_proxy_field(&mut self) {
-        if self.proxy_config_field == ProxyConfigField::Time {
+    pub fn select_ti_proxy(&mut self) {
+        self.proxy_mode = ProxyMode::Ti;
+        if self.proxy_config_field != ProxyConfigField::Time {
+            self.proxy_config_field = ProxyConfigField::ProxyChoice;
+            self.status = "TI proxy selected. Press Enter to retry the online catalog.".to_string();
+        }
+    }
+
+    pub fn select_manual_proxy(&mut self) {
+        self.proxy_mode = ProxyMode::Manual;
+        if self.proxy_config_field != ProxyConfigField::Time {
             self.proxy_config_field = ProxyConfigField::Proxy;
             self.status =
-                "Enter proxy URL and press Enter to retry the online catalog.".to_string();
+                "Manual proxy selected. Enter proxy URL and press Enter to retry.".to_string();
+        }
+    }
+
+    pub fn toggle_proxy_mode(&mut self) {
+        if self.proxy_config_field != ProxyConfigField::ProxyChoice {
+            return;
+        }
+        self.proxy_mode = match self.proxy_mode {
+            ProxyMode::Ti => ProxyMode::Manual,
+            ProxyMode::Manual => ProxyMode::Ti,
+        };
+        self.status = match self.proxy_mode {
+            ProxyMode::Ti => "TI proxy selected. Press Enter to retry the online catalog.",
+            ProxyMode::Manual => "Manual proxy selected. Press Enter to enter the proxy URL.",
+        }
+        .to_string();
+    }
+
+    pub fn warn_proxy_choice_command(&mut self) {
+        self.warning =
+            Some("Type 'ti' to use the TI proxy or 'manual' to enter a proxy URL.".to_string());
+    }
+
+    pub fn next_proxy_field(&mut self) {
+        match self.proxy_config_field {
+            ProxyConfigField::Time => {
+                self.proxy_config_field = ProxyConfigField::ProxyChoice;
+                self.status = "Choose TI proxy or manual proxy, then press Enter.".to_string();
+            }
+            ProxyConfigField::ProxyChoice => {
+                self.select_manual_proxy();
+            }
+            ProxyConfigField::Proxy => {}
         }
     }
 
     pub fn previous_proxy_field(&mut self) {
-        if self.proxy_config_field == ProxyConfigField::Proxy {
-            self.proxy_config_field = ProxyConfigField::Time;
-            self.status =
-                "Confirm or edit the UTC time before retrying the online catalog.".to_string();
+        match self.proxy_config_field {
+            ProxyConfigField::Time => {}
+            ProxyConfigField::ProxyChoice => {
+                self.proxy_config_field = ProxyConfigField::Time;
+                self.status =
+                    "Confirm or edit the UTC time before retrying the online catalog.".to_string();
+            }
+            ProxyConfigField::Proxy => {
+                self.proxy_config_field = ProxyConfigField::ProxyChoice;
+                self.status = "Choose TI proxy or manual proxy, then press Enter.".to_string();
+            }
         }
     }
 
@@ -555,6 +650,14 @@ impl App {
                 Err(error) => {
                     self.warning = Some(format!("{error:#}"));
                 }
+            }
+            return;
+        }
+
+        if self.proxy_config_field == ProxyConfigField::ProxyChoice {
+            match self.proxy_mode {
+                ProxyMode::Ti => self.apply_proxy_config(),
+                ProxyMode::Manual => self.select_manual_proxy(),
             }
             return;
         }
@@ -572,8 +675,13 @@ impl App {
         }
         self.refresh_system_status_now();
 
-        let proxy = self.proxy_input.trim().to_string();
-        let proxy = (!proxy.is_empty()).then_some(proxy);
+        let proxy = match self.proxy_mode {
+            ProxyMode::Ti => Some(TI_PROXY_URL.to_string()),
+            ProxyMode::Manual => {
+                let proxy = self.proxy_input.trim().to_string();
+                (!proxy.is_empty()).then_some(proxy)
+            }
+        };
 
         match manifest::load_catalog_with_proxy(&self.manifest_source, proxy.as_deref()) {
             Ok(catalog) => {
@@ -683,7 +791,7 @@ impl App {
     }
 
     pub fn tick_runner(&mut self) {
-        if self.screen == Screen::Installing {
+        if self.screen == Screen::Installing && !self.lite_mode {
             self.runner.tick();
         }
     }
@@ -1566,12 +1674,13 @@ mod tests {
         app.start_proxy_config();
 
         assert_eq!(app.proxy_config_field, ProxyConfigField::Time);
+        assert_eq!(app.proxy_mode, ProxyMode::Ti);
         assert!(app.proxy_time_input.is_empty());
         assert!(app.proxy_input.is_empty());
     }
 
     #[test]
-    fn proxy_config_enter_advances_after_valid_time() {
+    fn proxy_config_enter_advances_after_valid_time_to_proxy_choice() {
         let mut app = App::new(
             catalog(),
             board(),
@@ -1587,8 +1696,54 @@ mod tests {
 
         app.submit_proxy_config();
 
-        assert_eq!(app.proxy_config_field, ProxyConfigField::Proxy);
+        assert_eq!(app.proxy_config_field, ProxyConfigField::ProxyChoice);
+        assert_eq!(app.proxy_mode, ProxyMode::Ti);
         assert!(app.warning.is_none());
+    }
+
+    #[test]
+    fn proxy_config_uses_ti_proxy_by_default_after_time() {
+        let mut app = App::new(
+            catalog(),
+            board(),
+            targets(),
+            RunMode::Mock,
+            false,
+            "sample/catalog.json".to_string(),
+            None,
+            None,
+        );
+        app.start_proxy_config();
+        app.proxy_time_input = "2026-05-08 12:34:56".to_string();
+
+        app.submit_proxy_config();
+        app.submit_proxy_config();
+
+        assert_eq!(app.screen, Screen::ImageSelect);
+        assert_eq!(app.configured_proxy_url(), Some(TI_PROXY_URL));
+        assert!(app.warning.is_none());
+    }
+
+    #[test]
+    fn proxy_config_manual_choice_prompts_for_proxy_url() {
+        let mut app = App::new(
+            catalog(),
+            board(),
+            targets(),
+            RunMode::Mock,
+            false,
+            "sample/catalog.json".to_string(),
+            None,
+            None,
+        );
+        app.start_proxy_config();
+        app.proxy_time_input = "2026-05-08 12:34:56".to_string();
+
+        app.submit_proxy_config();
+        app.select_manual_proxy();
+
+        assert_eq!(app.proxy_config_field, ProxyConfigField::Proxy);
+        assert_eq!(app.proxy_mode, ProxyMode::Manual);
     }
 
     #[test]
@@ -1629,6 +1784,7 @@ mod tests {
 
         assert_eq!(app.screen, Screen::ProxyConfig);
         assert_eq!(app.proxy_config_field, ProxyConfigField::Time);
+        assert_eq!(app.proxy_mode, ProxyMode::Ti);
         assert_eq!(app.system_status.ip, "192.168.1.50");
         assert!(app.system_status.ethernet.contains("DHCP test"));
         assert!(app.proxy_time_input.is_empty());
@@ -1666,6 +1822,7 @@ mod tests {
                 extract_sha256: None,
                 image_download_size: Some(1),
                 extract_size: Some(1),
+                decoder_memory_size: None,
                 bmap_url: None,
                 signature_url: None,
             }],

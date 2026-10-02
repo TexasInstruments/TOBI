@@ -1555,6 +1555,7 @@ dependencies = [
  "crossterm",
  "flate2",
  "hex",
+ "libc",
  "qrcode",
  "ratatui",
  "reqwest",

@@ -81,6 +81,16 @@ If the online catalog cannot be reached, TOBI stays open, warns the user, and st
 
 TOBI streams images directly to the target media. The full downloaded or local image does not need to fit into RAM; only the installer runtime, decompressor, and write buffers do. Before installing, TOBI checks the available RAM against an estimated working set and blocks the install if that working set cannot fit.
 
+## TOBI-lite Mode
+
+`--lite` labels the app as **TOBI-lite** and enables the low-memory xz test policy used by the AM62-SIP Yocto image:
+
+```sh
+cargo run -- --mode mock --lite
+```
+
+In lite mode, `.wic.xz` images use measured catalog decoder-memory values when available, otherwise they fall back to the gzip-sized RAM estimate, and the xz guard is not enforced. This exists so 256 MiB AM62-SIP hardware can prove whether current TI `.wic.xz` images actually stream successfully. The production low-memory answer may still be `.wic.gz` or low-window `.wic.zst` catalog entries if xz is unstable.
+
 ## Run In Docker
 
 ```sh
@@ -100,6 +110,8 @@ sudo tobi \
 ```
 
 The production Yocto image should run fully from initramfs before this mode is used.
+
+After a successful eMMC flash, TOBI runs a post-flash boot patcher before showing the success screen. The patcher mounts the installed boot partition, updates `uEnv.txt` when the image is recognized as TI Yocto, TI Debian, or Armbian media, then unmounts it before reboot. This fixes SD-card-oriented defaults by selecting the eMMC MMC index and rootfs partition. The install UI shows the patching phase and the final success popup lists exactly what was changed or warns if patching could not be completed.
 
 ## License
 

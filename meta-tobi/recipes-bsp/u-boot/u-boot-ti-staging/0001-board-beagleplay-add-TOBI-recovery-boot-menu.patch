@@ -1,0 +1,300 @@
+From ff02f50d326abdb84e4abef70529b3e13ea182bc Mon Sep 17 00:00:00 2001
+From: Andrei Aldea <andrei1998@gmail.com>
+Date: Tue, 4 Aug 2026 11:27:59 -0500
+Subject: [PATCH] board: beagleplay: add TOBI recovery boot menu
+
+Present SD, eMMC, and TOBI Recovery choices on the BeaglePlay serial
+console. Restrict normal bootflow discovery to the selected device and
+return to the menu when media or boot files are unavailable.
+
+Search both MMC devices for a self-contained recovery payload and allow
+board environments to customize the boot-menu text.
+
+Upstream-Status: Inappropriate [TOBI-specific boot policy]
+
+Signed-off-by: Andrei Aldea <andrei1998@gmail.com>
+---
+ board/beagle/beagleplay/tobi.env       | 129 +++++++++++++++++++++++++
+ cmd/bootmenu.c                         |  43 +++++++--
+ configs/am62x_beagleplay_a53_defconfig |   4 +
+ 3 files changed, 166 insertions(+), 10 deletions(-)
+ create mode 100644 board/beagle/beagleplay/tobi.env
+
+diff --git a/board/beagle/beagleplay/tobi.env b/board/beagle/beagleplay/tobi.env
+new file mode 100644
+index 00000000..789cf9b1
+--- /dev/null
++++ b/board/beagle/beagleplay/tobi.env
+@@ -0,0 +1,129 @@
++#include <env/ti/ti_common.env>
++#include <env/ti/mmc.env>
++#include <env/ti/k3_dfu.env>
++#include <env/ti/ospi_nand.env>
++
++#if CONFIG_CMD_REMOTEPROC
++#include <env/ti/k3_rproc.env>
++#endif
++
++rproc_fw_binaries= 0 /lib/firmware/am62-mcu-m4f0_0-fw
++
++name_kern=Image
++console=ttyS2,115200n8
++args_all=setenv optargs ${optargs} earlycon=ns16550a,mmio32,0x02800000
++run_kern=booti ${loadaddr} ${rd_spec} ${fdtaddr}
++
++boot_targets=mmc1 mmc0 usb pxe dhcp
++boot=mmc
++mmcdev=1
++bootpart=1:2
++bootdir=/boot
++rd_spec=-
++
++splashfile=ti_logo_414x97_32bpp.bmp.gz
++splashimage=0x80200000
++splashpos=m,m
++splashsource=mmc
++
++#if CONFIG_BOOTMETH_ANDROID
++#include <env/ti/android.env>
++adtb_idx=0
++#endif
++
++/*
++ * BeaglePlay maps eMMC to mmc0 and the removable SD slot to mmc1.
++ * Keep the normal OS entries compatible with both the legacy TI uEnv.txt
++ * flow and standard bootflow (extlinux, boot.scr, and EFI).
++ */
++bootdelay=7
++bootmenu_default=0
++bootmenu_title==== TOBI Boot Menu ===
++bootmenu_subtitle=BeaglePlay recovery bootloader
++bootmenu_prompt=UP/DOWN selects, ENTER boots, ESC opens the U-Boot console
++bootmenu_exit_title=U-Boot Console
++bootmenu_reenter_on_failure=yes
++
++tobi_boot_mmc=
++	echo Booting from ${tobi_mmc_label}...;
++	env default -f args_all args_mmc boot boot_fdt boot_fit bootdir
++		bootmeths bootpart bootcmd_ti_mmc bootscript console envboot
++		finduuid get_fdt_mmc get_initramfs_mmc get_kern_mmc
++		get_overlay_mmc importbootenv init_mmc loadbootenv
++		load_initramfs_mmc mmcdev name_initramfs name_kern
++		name_overlays optargs rd_spec run_kern uenvcmd;
++	setenv boot mmc;
++	setenv mmcdev ${tobi_mmcdev};
++	setenv bootpart ${tobi_mmcdev}:2;
++	setenv bootdir /boot;
++	setenv name_initramfs ti-core-initramfs.cpio.xz;
++	setenv rd_spec -;
++	setenv uenvcmd;
++	setenv optargs;
++	setenv name_overlays;
++	setenv boot_fit 0;
++	if mmc dev ${tobi_mmcdev} && mmc rescan; then
++		run envboot;
++		bootflow scan -lb mmc${tobi_mmcdev};
++	else
++		echo ERROR: ${tobi_mmc_label} is not available;
++	fi;
++	echo ERROR: No bootable OS was found on ${tobi_mmc_label};
++	echo Returning to the TOBI boot menu...;
++	sleep 2;
++	itest 0 == 1
++
++tobi_boot_sd=
++	setenv tobi_mmcdev 1;
++	setenv tobi_mmc_label SD card;
++	run tobi_boot_mmc
++
++tobi_boot_emmc=
++	setenv tobi_mmcdev 0;
++	setenv tobi_mmc_label eMMC;
++	run tobi_boot_mmc
++
++tobi_recovery_dir=/recovery
++tobi_recovery_bootargs=console=ttyS2,115200n8 console=tty0 quiet loglevel=1 vt.global_cursor_default=1 tobi.ttys=/dev/tty0,/dev/ttyS2
++tobi_try_recovery=
++	echo Checking mmc${tobi_recovery_dev}:${tobi_recovery_part}${tobi_recovery_dir}...;
++	if load mmc ${tobi_recovery_dev}:${tobi_recovery_part}
++		${kernel_addr_r} ${tobi_recovery_dir}/Image &&
++	   load mmc ${tobi_recovery_dev}:${tobi_recovery_part}
++		${ramdisk_addr_r} ${tobi_recovery_dir}/uInitrd; then
++		setenv tobi_recovery_size ${filesize};
++		if load mmc ${tobi_recovery_dev}:${tobi_recovery_part}
++			${fdt_addr_r} ${tobi_recovery_dir}/dtb/${fdtfile}; then
++			setenv bootargs ${tobi_recovery_bootargs};
++			echo Starting TOBI Recovery from mmc${tobi_recovery_dev}...;
++			booti ${kernel_addr_r}
++				${ramdisk_addr_r}:${tobi_recovery_size} ${fdt_addr_r};
++			echo ERROR: TOBI Recovery returned to U-Boot;
++		else
++			echo TOBI Recovery device tree was not found on mmc${tobi_recovery_dev};
++		fi;
++	else
++		echo TOBI Recovery kernel or initramfs was not found on mmc${tobi_recovery_dev};
++	fi;
++	itest 0 == 1
++
++tobi_boot_recovery=
++	echo Searching for TOBI Recovery on SD, then eMMC...;
++	setenv tobi_recovery_part 1;
++	setenv tobi_recovery_dev 1;
++	if mmc dev ${tobi_recovery_dev} && mmc rescan; then
++		run tobi_try_recovery;
++	fi;
++	setenv tobi_recovery_dev 0;
++	if mmc dev ${tobi_recovery_dev} && mmc rescan; then
++		run tobi_try_recovery;
++	fi;
++	echo ERROR: A complete TOBI Recovery bundle was not found;
++	echo Expected Image, uInitrd, and dtb/${fdtfile} under ${tobi_recovery_dir}.;
++	echo Returning to the TOBI boot menu...;
++	sleep 2;
++	itest 0 == 1
++
++bootmenu_0=Boot OS from SD card (default)=run tobi_boot_sd
++bootmenu_1=Boot OS from eMMC=run tobi_boot_emmc
++bootmenu_2=TOBI Recovery=run tobi_boot_recovery
+diff --git a/cmd/bootmenu.c b/cmd/bootmenu.c
+index d3108778..b79d59c2 100644
+--- a/cmd/bootmenu.c
++++ b/cmd/bootmenu.c
+@@ -30,6 +30,7 @@
+ enum bootmenu_ret {
+ 	BOOTMENU_RET_SUCCESS = 0,
+ 	BOOTMENU_RET_FAIL,
++	BOOTMENU_RET_COMMAND_FAILED,
+ 	BOOTMENU_RET_QUIT,
+ 	BOOTMENU_RET_UPDATED,
+ };
+@@ -373,6 +374,7 @@ static int prepare_uefi_bootorder_entry(struct bootmenu_data *menu,
+  */
+ static struct bootmenu_data *bootmenu_create(int uefi, int delay)
+ {
++	const char *exit_title;
+ 	int ret;
+ 	unsigned short int i = 0;
+ 	struct bootmenu_data *menu;
+@@ -421,11 +423,15 @@ static struct bootmenu_data *bootmenu_create(int uefi, int delay)
+ 		if (!entry)
+ 			goto cleanup;
+ 
+-		/* Add Quit entry if exiting bootmenu is disabled */
+-		if (!IS_ENABLED(CONFIG_BOOTMENU_DISABLE_UBOOT_CONSOLE))
+-			entry->title = strdup("0. Exit");
+-		else
+-			entry->title = strdup("0. Quit");
++		exit_title = env_get("bootmenu_exit_title");
++		if (!exit_title) {
++			/* Add Quit entry if exiting bootmenu is disabled */
++			if (!IS_ENABLED(CONFIG_BOOTMENU_DISABLE_UBOOT_CONSOLE))
++				exit_title = "0. Exit";
++			else
++				exit_title = "0. Quit";
++		}
++		entry->title = strdup(exit_title);
+ 
+ 		if (!entry->title) {
+ 			free(entry);
+@@ -471,6 +477,9 @@ cleanup:
+ 
+ static void menu_display_statusline(struct menu *m)
+ {
++	const char *prompt = env_get("bootmenu_prompt");
++	const char *subtitle = env_get("bootmenu_subtitle");
++	const char *title = env_get("bootmenu_title");
+ 	struct bootmenu_entry *entry;
+ 	struct bootmenu_data *menu;
+ 
+@@ -482,16 +491,22 @@ static void menu_display_statusline(struct menu *m)
+ 	printf(ANSI_CURSOR_POSITION, 1, 1);
+ 	puts(ANSI_CLEAR_LINE);
+ 	printf(ANSI_CURSOR_POSITION, 2, 3);
+-	puts("*** U-Boot Boot Menu ***");
++	puts(title ? title : "*** U-Boot Boot Menu ***");
+ 	puts(ANSI_CLEAR_LINE_TO_END);
+ 	printf(ANSI_CURSOR_POSITION, 3, 1);
+ 	puts(ANSI_CLEAR_LINE);
++	if (subtitle) {
++		printf(ANSI_CURSOR_POSITION, 3, 3);
++		puts(subtitle);
++		puts(ANSI_CLEAR_LINE_TO_END);
++	}
+ 
+ 	/* First 3 lines are bootmenu header + 2 empty lines between entries */
+ 	printf(ANSI_CURSOR_POSITION, menu->count + 5, 1);
+ 	puts(ANSI_CLEAR_LINE);
+ 	printf(ANSI_CURSOR_POSITION, menu->count + 6, 3);
+-	puts("Press UP/DOWN to move, ENTER to select, ESC to quit");
++	puts(prompt ? prompt :
++		"Press UP/DOWN to move, ENTER to select, ESC to quit");
+ 	puts(ANSI_CLEAR_LINE_TO_END);
+ 	printf(ANSI_CURSOR_POSITION, menu->count + 7, 1);
+ 	puts(ANSI_CLEAR_LINE);
+@@ -530,7 +545,7 @@ static void handle_uefi_bootnext(void)
+  */
+ static enum bootmenu_ret bootmenu_show(int uefi, int delay)
+ {
+-	int cmd_ret;
++	int cmd_ret = CMD_RET_SUCCESS;
+ 	int init = 0;
+ 	void *choice = NULL;
+ 	char *title = NULL;
+@@ -558,7 +573,8 @@ static enum bootmenu_ret bootmenu_show(int uefi, int delay)
+ 			return BOOTMENU_RET_FAIL;
+ 		}
+ 		cmd_ret = run_command(sep + 1, 0);
+-		return (cmd_ret == CMD_RET_SUCCESS ? BOOTMENU_RET_SUCCESS : BOOTMENU_RET_FAIL);
++		return cmd_ret == CMD_RET_SUCCESS ? BOOTMENU_RET_SUCCESS :
++			BOOTMENU_RET_COMMAND_FAILED;
+ 	}
+ 
+ 	bootmenu = bootmenu_create(uefi, delay);
+@@ -644,8 +660,10 @@ cleanup:
+ 	run_command(CFG_POSTBOOTMENU, 0);
+ #endif
+ 
+-	if (efi_ret != EFI_SUCCESS || cmd_ret != CMD_RET_SUCCESS)
++	if (efi_ret != EFI_SUCCESS)
+ 		ret = BOOTMENU_RET_FAIL;
++	else if (cmd_ret != CMD_RET_SUCCESS)
++		ret = BOOTMENU_RET_COMMAND_FAILED;
+ 
+ 	return ret;
+ }
+@@ -661,6 +679,11 @@ int menu_show(int bootdelay)
+ 		if (ret == BOOTMENU_RET_UPDATED)
+ 			continue;
+ 
++		/* Failed boot entries may opt into another menu selection. */
++		if (ret == BOOTMENU_RET_COMMAND_FAILED &&
++		    env_get_yesno("bootmenu_reenter_on_failure") == 1)
++			continue;
++
+ 		if (IS_ENABLED(CONFIG_BOOTMENU_DISABLE_UBOOT_CONSOLE)) {
+ 			if (ret == BOOTMENU_RET_QUIT) {
+ 				/* default boot process */
+diff --git a/configs/am62x_beagleplay_a53_defconfig b/configs/am62x_beagleplay_a53_defconfig
+index 50229bad..ea75f32a 100644
+--- a/configs/am62x_beagleplay_a53_defconfig
++++ b/configs/am62x_beagleplay_a53_defconfig
+@@ -27,6 +27,9 @@ CONFIG_SPL_LIBDISK_SUPPORT=y
+ # CONFIG_PSCI_RESET is not set
+ # CONFIG_SYS_MALLOC_CLEAR_ON_INIT is not set
+ CONFIG_BOOTSTD_FULL=y
++CONFIG_ENV_SOURCE_FILE="tobi"
++CONFIG_BOOTDELAY=7
++CONFIG_AUTOBOOT_MENU_SHOW=y
+ CONFIG_AUTOBOOT_KEYED=y
+ CONFIG_AUTOBOOT_PROMPT="Press SPACE to abort autoboot in %d seconds\n"
+ CONFIG_AUTOBOOT_DELAY_STR="d"
+@@ -46,6 +49,7 @@ CONFIG_SPL_DM_MAILBOX=y
+ CONFIG_SPL_POWER_DOMAIN=y
+ CONFIG_SPL_YMODEM_SUPPORT=y
+ CONFIG_CMD_BOOTEFI_SELFTEST=y
++CONFIG_CMD_BOOTMENU=y
+ CONFIG_CMD_NVEDIT_EFI=y
+ CONFIG_CMD_GPIO=y
+ CONFIG_CMD_GPIO_READ=y
+-- 
+2.53.0

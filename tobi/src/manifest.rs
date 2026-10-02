@@ -45,6 +45,8 @@ pub struct ImageEntry {
     #[serde(default)]
     pub extract_size: Option<u64>,
     #[serde(default)]
+    pub decoder_memory_size: Option<u64>,
+    #[serde(default)]
     pub bmap_url: Option<String>,
     #[serde(default)]
     pub signature_url: Option<String>,
