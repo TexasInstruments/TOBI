@@ -14,7 +14,7 @@ Use Ubuntu 22.04 or TI's Yocto container for repeatable builds. On Apple silicon
 | --- | --- | --- |
 | SK-AM62P-LP | `am62pxx-evm` | AM62P starter kit |
 | SK-AM62-LP | `am62xx-lp-evm` | AM62x low-power starter kit |
-| SK-AM62-SIP | `am62xxsip-evm` | AM62x SIP starter kit |
+| SK-AM62-SIP | `am62xxsip-evm` | AM6254ATL SIP configuration |
 | SK-AM62B | `am62xx-evm` | AM62x starter kit family |
 | BeaglePlay | `beagleplay-ti` | BeagleBoard.org AM62x single-board computer |
 | SK-AM62A-LP | `am62axx-evm` | AM62A Edge AI starter kit |

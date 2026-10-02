@@ -26,7 +26,7 @@ Download the image for your board from [GitHub Releases](https://github.com/Texa
 
 Write the image to a microSD card with an image-writing tool, select the board's SD boot mode, and power on with a debug UART connected. TOBI runs from RAM; select an OS and the target eMMC, then confirm the installation.
 
-There are eleven board labels and ten Yocto machine builds. SK-AM64B and TMDS64EVM share `am64xx-evm`; their release filenames identify the intended board separately.
+There are eleven board labels and ten Yocto machine builds. SK-AM64B and TMDS64EVM share `am64xx-evm`; their release filenames identify the intended board separately. The SK-AM62-SIP image uses the AM6254ATL BSP configuration.
 
 The eMMC install uses the user data area and its filesystem boot partition. After a successful installation on a board with configurable boot switches, power off, remove the SD card, select **MMCSD, port 0, filesystem (FS) mode**, and power on. The mode called **eMMC boot** in TI's ROM documentation instead reads the separate Boot0/Boot1 hardware partitions. These modes require different bootloader layouts; follow the [TI filesystem eMMC boot guide](https://software-dl.ti.com/processor-sdk-linux/esd/AM62X/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html) and the boot-mode pin mapping in your board's user guide and SoC TRM. Check the physical switch numbers, the printed ON direction, and the board revision before changing switches.
 
