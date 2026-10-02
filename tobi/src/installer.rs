@@ -15,7 +15,10 @@ use sha2::{Digest, Sha256};
 use xz2::read::XzDecoder;
 use zstd::stream::read::Decoder as ZstdDecoder;
 
-use crate::boot_patch::{BootPatchReport, patch_installed_boot_media, target_needs_boot_patch};
+use crate::boot_patch::{
+    BootPatchReport, BootPatchStatus, EmmcBootPartition, patch_installed_boot_media,
+    patch_installed_boot_media_with_boot_partition, target_needs_boot_patch,
+};
 use crate::device::InstallTarget;
 use crate::manifest::{ImageEntry, ImageFormat};
 use crate::memory::ensure_image_memory;
@@ -34,6 +37,7 @@ pub enum RunMode {
 #[derive(Clone, Debug)]
 pub struct InstallRequest {
     pub image: ImageEntry,
+    pub board_id: Option<String>,
     pub target: InstallTarget,
     pub run_mode: RunMode,
     pub allow_write: bool,
@@ -273,7 +277,11 @@ fn patch_boot_media_after_install(
         source_total: None,
     })?;
 
-    let report = patch_installed_boot_media(&request.target);
+    let report = if request.board_id.as_deref() == Some("beagleplay") {
+        patch_installed_boot_media_with_boot_partition(&request.target, EmmcBootPartition::Boot0)
+    } else {
+        patch_installed_boot_media(&request.target)
+    };
     tx.send(InstallEvent::Progress {
         phase: "Patching boot media".to_string(),
         current: 1,
@@ -291,6 +299,14 @@ fn complete_successful_live_install(
     tx: &Sender<InstallEvent>,
     boot_patch: Option<&BootPatchReport>,
 ) -> anyhow::Result<()> {
+    if let Some(report) = boot_patch {
+        if report.status == BootPatchStatus::Warning {
+            bail!(
+                "Image written, but eMMC boot setup is incomplete.\n\n{}\n\nKeep the SD card available for recovery and retry after correcting the reported problem.",
+                report.final_message()
+            );
+        }
+    }
     tx.send(InstallEvent::Phase(format!(
         "Install complete. Wrote {} bytes to {}. Syncing target media.",
         written,
@@ -299,7 +315,13 @@ fn complete_successful_live_install(
     let _ = Command::new("sync").status();
     log_memory_snapshot("live install: complete");
 
-    let reboot_line = if request.reboot_after_install {
+    let reboot_line = if request.target.kind == crate::device::TargetKind::Emmc {
+        if request.board_id.as_deref() == Some("beagleplay") {
+            "\n\nPower off, remove the SD card, then power on with USR released to boot from eMMC."
+        } else {
+            "\n\nPower off, remove the SD card, and select MMCSD filesystem boot on eMMC port 0 using the board manual before powering on."
+        }
+    } else if request.reboot_after_install {
         "\n\nReady to reboot into the installed image."
     } else {
         ""
@@ -809,6 +831,7 @@ mod tests {
                 bmap_url: None,
                 signature_url: None,
             },
+            board_id: None,
             target: InstallTarget {
                 id: "target".to_string(),
                 name: "target".to_string(),
@@ -853,6 +876,7 @@ mod tests {
                 bmap_url: None,
                 signature_url: None,
             },
+            board_id: None,
             target: InstallTarget {
                 id: "target".to_string(),
                 name: "target".to_string(),
@@ -882,6 +906,33 @@ mod tests {
 
         let complete = receive_complete_message(rx);
         assert!(!complete.contains("Boot patch"));
+    }
+
+    #[test]
+    fn incomplete_emmc_boot_setup_cannot_report_install_success() {
+        let request = request_for_success_message(TargetKind::Emmc);
+        let report = BootPatchReport::warning("eMMC settings could not be verified", vec![]);
+        let (tx, rx) = mpsc::channel();
+        let error = complete_successful_live_install(123, &request, &tx, Some(&report))
+            .expect_err("boot setup warning must fail installation");
+        assert!(
+            error
+                .to_string()
+                .contains("Image written, but eMMC boot setup is incomplete")
+        );
+        assert!(
+            !rx.try_iter()
+                .any(|event| matches!(event, InstallEvent::Complete(_)))
+        );
+    }
+
+    #[test]
+    fn beagleplay_completion_describes_boot0_power_cycle() {
+        let mut request = request_for_success_message(TargetKind::Emmc);
+        request.board_id = Some("beagleplay".to_string());
+        let (tx, rx) = mpsc::channel();
+        complete_successful_live_install(123, &request, &tx, None).expect("complete");
+        assert!(receive_complete_message(rx).contains("USR released"));
     }
 
     #[test]
@@ -994,6 +1045,7 @@ mod tests {
                 bmap_url: None,
                 signature_url: None,
             },
+            board_id: None,
             target: InstallTarget {
                 id: "target".to_string(),
                 name: "target".to_string(),

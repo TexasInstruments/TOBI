@@ -282,7 +282,9 @@ mod tests {
             catalog
                 .images
                 .iter()
-                .any(|image| image.id == "tisdk-default-am62pxx-12.00.00.07.04")
+                .any(|image| image.id.starts_with("tisdk-default-am62pxx-")
+                    && image.devices.iter().any(|device| device == "sk-am62p-lp")
+                    && image.recommended)
         );
         assert!(catalog.images.len() > 4);
     }

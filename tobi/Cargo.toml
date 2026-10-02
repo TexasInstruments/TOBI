@@ -1,6 +1,6 @@
 [package]
 name = "tobi"
-version = "0.4.0"
+version = "2026.10.2"
 edition = "2024"
 description = "TOBI: TI Out of Box Installer for Sitara starter kit evaluation modules"
 license = "GPL-2.0-only"

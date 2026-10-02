@@ -1,6 +1,6 @@
 # TOBI
 
-**TOBI** is the **TI Out of Box Installer** for Texas Instruments Sitara starter kit evaluation modules. It boots a small RAM-resident Linux environment, presents a terminal UI, downloads a selected OS image, streams/decompresses it directly to target media, and reboots into the installed image.
+**TOBI** is the **TI Out of Box Installer** for Texas Instruments Sitara starter kit evaluation modules. It boots a small RAM-resident Linux environment, presents a terminal UI, downloads a selected OS image, streams/decompresses it directly to target media, and prepares the installed image for boot.
 
 TOBI supports these starter kits and EVMs:
 
@@ -19,6 +19,20 @@ TOBI supports these starter kits and EVMs:
 | SK-AM69 | `am69-sk` | `PROCESSOR-SDK-LINUX-AM69` |
 
 The catalog also includes Armbian community downloads for supported boards that have matching Armbian board pages as a separate Community section.
+
+## Install From A Release Image
+
+Download the image for your board from [GitHub Releases](https://github.com/TexasInstruments/TOBI/releases). Release `2026.10.2` uses tag `v2026.10.2` and filenames such as `TOBI-2026.10.2-SK-AM62P-LP.img.xz` and `TOBI-2026.10.2-BeaglePlay.img.xz`; the board names match the table above. Download `SHA256SUMS` as well and verify the image checksum before writing it. The release contains the eleven board images and that checksum file.
+
+Write the image to a microSD card with an image-writing tool, select the board's SD boot mode, and power on with a debug UART connected. TOBI runs from RAM; select an OS and the target eMMC, then confirm the installation.
+
+There are eleven board labels and ten Yocto machine builds. SK-AM64B and TMDS64EVM share `am64xx-evm`; their release filenames identify the intended board separately.
+
+The eMMC install uses the user data area and its filesystem boot partition. After a successful installation on a board with configurable boot switches, power off, remove the SD card, select **MMCSD, port 0, filesystem (FS) mode**, and power on. The mode called **eMMC boot** in TI's ROM documentation instead reads the separate Boot0/Boot1 hardware partitions. These modes require different bootloader layouts; follow the [TI filesystem eMMC boot guide](https://software-dl.ti.com/processor-sdk-linux/esd/AM62X/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html) and the boot-mode pin mapping in your board's user guide and SoC TRM. Check the physical switch numbers, the printed ON direction, and the board revision before changing switches.
+
+BeaglePlay uses a USR button rather than configurable boot DIP switches. Its released-button straps select eMMC Boot0; pressing USR during power-on selects SD filesystem boot. When installing a TOBI recovery image to BeaglePlay's eMMC, TOBI provisions only the first-stage `tiboot3.bin` loader in Boot0 and verifies it by reading it back. The remaining bootloader stages and recovery files load from the user-area filesystem. After success, power off, remove the SD card, and power on with USR released. Third-party images still need compatible filesystem bootloaders; keep the TOBI SD card available for recovery. See [BeaglePlay's boot configuration](https://docs.beagleboard.org/books/beaglebone-cookbook/11misc/misc.html#the-play-s-boot-sequence).
+
+If eMMC boot preparation reports a warning, TOBI stops with an error even if the image write completed. Correct the reported problem before trying to boot, and keep the SD recovery card available. Successful eMMC installs wait on the completion screen without an automatic reboot countdown; Enter still provides a manual reboot, while the instructions call for powering off to remove the SD card and set boot mode. A successful download and write does not establish that every board, image, and boot-switch combination has been tested on hardware.
 
 ## Layout
 
@@ -171,11 +185,11 @@ Replace `am62pxx-evm` with another supported machine to generate that board's TO
 
 The SD image is user-flashable. It boots TOBI into RAM and leaves the target eMMC free to be overwritten by the installer.
 
-When flashing to eMMC, TOBI runs a post-flash boot patcher before reboot. It mounts the installed boot partition, updates `uEnv.txt` for recognized TI Yocto, TI Debian, and Armbian layouts so U-Boot selects the eMMC MMC index and rootfs partition, and adds an `extlinux/extlinux.conf` eMMC bootflow fallback for Armbian-style images whose built-in U-Boot environment starts on SD. The TUI shows this as an explicit install phase, and the success popup includes the patch result and changed boot settings.
+When flashing to eMMC, TOBI runs a post-flash boot patcher before reboot. It mounts the installed boot partition, updates `uEnv.txt` for recognized TI Yocto, TI Debian, and Armbian layouts so U-Boot selects the eMMC MMC index and rootfs partition, and adds an `extlinux/extlinux.conf` eMMC bootflow fallback for Armbian-style images whose built-in U-Boot environment starts on SD. When installing a TOBI image, it preserves the `/recovery` kernel, initramfs, DTB paths, and TOBI boot arguments while selecting eMMC. The TUI shows this as an explicit install phase, and the success popup includes the patch result and changed boot settings.
 
 ## BeaglePlay U-Boot Menu And Recovery Bundle
 
-The `dev` branch patches TI U-Boot 2026.01 for `MACHINE=beagleplay-ti` with a
+The Yocto layer patches TI U-Boot 2026.01 for `MACHINE=beagleplay-ti` with a
 centered TI-red splash for three seconds followed by a ten-second menu on both
 the debug UART and HDMI:
 
@@ -195,7 +209,7 @@ inherit tobi-recovery
 
 The class adds `recovery/Image`, `recovery/uInitrd`, and the machine DTBs to `IMAGE_BOOT_FILES`. Check the target WKS boot-partition size before enabling it. It is intentionally not injected into every TI image by default yet: TOBI is a write-capable recovery environment, adds meaningful image size, and needs a defined signing and update policy for secure production systems.
 
-Build the initial BeaglePlay test image with:
+Build a BeaglePlay image with:
 
 ```sh
 MACHINE=beagleplay-ti ./yocto/scripts/build-tobi-sd-image-ubuntu-x86_64.sh

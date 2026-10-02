@@ -27,9 +27,6 @@ cd build
 # shellcheck disable=SC1091
 . conf/setenv
 
-bitbake-layers show-layers | grep -q "meta-tobi" || \
-  bitbake-layers add-layer "$REPO_ROOT/meta-tobi"
-
 grep -q '^TOBI_PREBUILT' conf/local.conf || \
   echo "TOBI_PREBUILT = \"$TOBI_PREBUILT\"" >> conf/local.conf
 if [[ -n "${DL_DIR:-}" ]]; then
@@ -40,6 +37,10 @@ if [[ -n "${SSTATE_DIR:-}" ]]; then
   grep -q '^SSTATE_DIR' conf/local.conf || \
     echo "SSTATE_DIR = \"$SSTATE_DIR\"" >> conf/local.conf
 fi
+
+# The layer checks TOBI_PREBUILT while parsing its recipes. Set it first.
+bitbake-layers show-layers | grep -q "meta-tobi" || \
+  bitbake-layers add-layer "$REPO_ROOT/meta-tobi"
 
 if [[ "${FORCE_TOBI_PREBUILT_REBUILD:-0}" == "1" ]]; then
   MACHINE="$MACHINE" bitbake -c cleansstate tobi-prebuilt

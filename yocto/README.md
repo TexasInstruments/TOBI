@@ -12,7 +12,7 @@ Use Ubuntu 22.04 or TI's Yocto container for repeatable builds. On Apple silicon
 
 | Board | Yocto `MACHINE` | Notes |
 | --- | --- | --- |
-| SK-AM62P-LP | `am62pxx-evm` | Initial hardware target |
+| SK-AM62P-LP | `am62pxx-evm` | AM62P starter kit |
 | SK-AM62-LP | `am62xx-lp-evm` | AM62x low-power starter kit |
 | SK-AM62-SIP | `am62xxsip-evm` | AM62x SIP starter kit |
 | SK-AM62B | `am62xx-evm` | AM62x starter kit family |
@@ -73,6 +73,8 @@ MACHINE=am62pxx-evm bitbake tobi-initramfs
 ```
 
 Set `MACHINE` to any entry from the board matrix to build that board's initramfs or SD-card image.
+
+The matrix has eleven boards and ten machine builds because SK-AM64B and TMDS64EVM share `am64xx-evm`. Build outputs retain Yocto machine filenames; release `2026.10.2` uses `TOBI-2026.10.2-<BOARD>.img.xz` with the board spelling shown in the matrix. Publish both AM64x board labels from the shared machine output. The `v2026.10.2` release assets contain only those eleven compressed disk images and `SHA256SUMS`; initramfs, standalone binaries, and bmaps remain build outputs.
 
 On x86_64 Linux hosts, the recommended Docker flow keeps BitBake native to the host and only cross-compiles the standalone `tobi` app to AArch64:
 
@@ -199,7 +201,7 @@ MACHINE=beagleplay-ti ./yocto/scripts/build-tobi-sd-image-ubuntu-x86_64.sh
 
 With the debug UART and an HDMI monitor connected, verify all of these cases:
 
-1. Let the seven-second timeout expire and confirm the SD entry boots.
+1. Confirm the three-second splash and ten-second menu timeout, then let the SD entry boot.
 2. Select eMMC and confirm its `uEnv.txt`, boot script, extlinux, or EFI flow boots without scanning SD as a fallback.
 3. Select TOBI Recovery and confirm it loads `/recovery/Image`, `/recovery/uInitrd`, and `/recovery/dtb/ti/k3-am625-beagleplay.dtb`.
 4. Repeat each entry with its media removed or a required file renamed and confirm the menu returns after the error.
@@ -212,6 +214,20 @@ inherit tobi-recovery
 ```
 
 This only populates `IMAGE_BOOT_FILES`; ensure the WKS boot partition has room for the added kernel and initramfs. Do not enable it globally on secure production images until the recovery signing, rollback, and update policy is defined.
+
+## eMMC Install And Hardware Validation
+
+TOBI's default eMMC install writes the full disk image to the user data area. The post-install patch selects eMMC in supported OS boot configurations. For a TOBI recovery image, it keeps `/recovery/Image`, `/recovery/uInitrd`, the board DTBs, and the TOBI kernel arguments intact instead of replacing them with a normal OS boot configuration.
+
+After a successful install on a DIP-switch board, power off, remove the SD card, choose **MMCSD boot, eMMC port 0, filesystem (FS) mode** using the board user guide and SoC TRM, then power on. TI distinguishes this from **eMMC boot**, which loads the ROM's first-stage loader from hardware Boot0/Boot1; see the [MMC boot-mode definitions](https://software-dl.ti.com/processor-sdk-linux/esd/AM62PX/latest/exports/docs/linux/Foundational_Components/U-Boot/UG-Memory-K3.html) and [UDA filesystem boot procedure](https://software-dl.ti.com/processor-sdk-linux/esd/AM62X/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html).
+
+Use the manual for the exact board revision to translate BOOTMODE bits into numbered physical switches. The SK-AM62P-LP uses SW4/SW5; SK-AM64B uses SW2/SW3. Their switch banks and bit orders differ, so a binary setting copied from another board or an unlabeled forum image is insufficient. The [SK-AM62P-LP guide](https://www.ti.com/lit/pdf/spruja2) and [SK-AM64B guide](https://www.ti.com/lit/pdf/spruj64) provide the physical pin mapping and ON/OFF definitions.
+
+BeaglePlay has fixed boot straps controlled by USR: pressed during power-on selects SD filesystem boot; released selects eMMC Boot0. TOBI therefore makes a board-specific exception when installing a TOBI recovery image: copy the installed FAT partition's `tiboot3.bin` to Boot0 at offset zero, verify the bytes by reading them back, and enable Boot0 for the ROM's first-stage load. The patched SPL then reads `tispl.bin` and `u-boot.img` from the user-area FAT filesystem. Other boards use filesystem boot from the user area. Third-party images still require compatible filesystem bootloaders; inclusion in the catalog does not establish hardware boot compatibility with this loader. See [BeaglePlay boot documentation](https://docs.beagleboard.org/boards/beagleplay/demos-and-tutorials/understanding-boot.html).
+
+If eMMC preparation reports a warning, the installer stops with an error even after a completed image write. The successful eMMC completion screen does not start the ten-second automatic reboot countdown and instructs the user to power off and remove the SD card; BeaglePlay powers on with USR released, while DIP-switch boards use the filesystem boot setting above. Enter remains available for a manual reboot. Verify both the error path and these completion instructions during hardware testing.
+
+Before marking a board/image combination as hardware verified, record its board revision, SoC security type, image checksum, boot-mode settings, and UART log. Test a cold boot from the installed eMMC, warm reboot, recovery startup, and startup with the SD removed where the board's ROM configuration permits it. Build completion and software tests alone do not establish those results. The BeaglePlay UART/HDMI recovery menu is board-specific; other machine outputs do not acquire that menu merely by including the recovery payload.
 
 ## License
 

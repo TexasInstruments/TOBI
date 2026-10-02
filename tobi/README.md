@@ -2,7 +2,7 @@
 
 **TI Out of Box Installer**: terminal OS installer for Texas Instruments Sitara starter kit evaluation modules.
 
-The catalog includes SK-AM62P-LP, SK-AM62-LP, SK-AM62-SIP, SK-AM62B, BeaglePlay, SK-AM62A-LP, TMDS62LEVM, SK-AM64B, TMDS64EVM, SK-AM68, and SK-AM69 entries. Supported boards that also have Armbian board pages include Armbian Community images from the Armbian board downloads; SK-AM62A-LP and TMDS64EVM currently remain TI-only because Armbian does not publish matching board pages.
+The catalog includes SK-AM62P-LP, SK-AM62-LP, SK-AM62-SIP, SK-AM62B, BeaglePlay, SK-AM62A-LP, TMDS62LEVM, SK-AM64B, TMDS64EVM, SK-AM68, and SK-AM69 entries. All listed boards except SK-AM62A-LP have Armbian Community images from their matching Armbian board downloads. BeaglePlay also has official BeagleBoard Debian IoT and XFCE images.
 
 ## Catalog
 
@@ -104,7 +104,15 @@ sudo tobi \
 
 The production Yocto image should run fully from initramfs before this mode is used.
 
-After a successful eMMC flash, TOBI runs a post-flash boot patcher before showing the success screen. The patcher mounts the installed boot partition, updates `uEnv.txt` when the image is recognized as TI Yocto, TI Debian, or Armbian media, then unmounts it before reboot. This fixes SD-card-oriented defaults by selecting the eMMC MMC index and rootfs partition. The install UI shows the patching phase and the final success popup lists exactly what was changed or warns if patching could not be completed.
+After an eMMC image write, TOBI runs a post-flash boot patcher before showing the success screen. The patcher mounts the installed boot partition, updates `uEnv.txt` when the image is recognized as TI Yocto, TI Debian, or Armbian media, then unmounts it. This fixes SD-card-oriented defaults by selecting the eMMC MMC index and rootfs partition. For a TOBI image, it retains the `/recovery` boot paths and TOBI arguments so the installed image starts the RAM installer again. The install UI shows the patching phase and the final success popup lists exactly what was changed. A boot-preparation warning stops the install with an error, even when the disk image was written; correct the reported problem and keep the SD card for recovery.
+
+The default eMMC layout is a disk image in the user data area, with bootloaders in its filesystem boot partition. After success, power off, remove the SD card, select **MMCSD boot from eMMC port 0 in filesystem mode** on boards whose boot pins can select it, then power on. ROM's separate **eMMC boot** mode requires bootloaders in Boot0/Boot1. The install result cannot change physical switches; use the board manual and [TI's eMMC UDA guide](https://software-dl.ti.com/processor-sdk-linux/esd/AM62X/latest/exports/docs/linux/How_to_Guides/Target/How_to_mmcsd_boot_emmc_uda.html).
+
+BeaglePlay's fixed released-USR boot straps select Boot0. When installing a TOBI recovery image, TOBI copies its `tiboot3.bin` to Boot0, verifies the copy by reading it back, and configures the eMMC to start that loader. Only this first stage uses Boot0; its patched SPL loads the remaining bootloader stages from the user-area filesystem. After success, power off, remove the SD card, and power on with USR released. Third-party images must provide compatible filesystem bootloaders. Keep the SD recovery image available while verifying eMMC startup without the SD card.
+
+Successful eMMC installs do not start the ten-second automatic reboot countdown. The completion screen provides the power-off and boot-mode instructions above; Enter remains available for a manual reboot.
+
+Mock tests, file-backed writes, and successful image builds verify software behavior. They do not verify ROM boot, eMMC controller configuration, cold boot, or recovery operation on each physical board.
 
 ## License
 

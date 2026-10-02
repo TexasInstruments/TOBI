@@ -772,6 +772,11 @@ fn render_complete(frame: &mut Frame, app: &App, area: Rect) {
             Line::from("Press Enter to reboot now."),
             Line::from("Press R to start over."),
         ]
+    } else if app.can_reboot_after_complete() {
+        vec![
+            Line::from("Power off and follow the boot instructions above."),
+            Line::from("Press Enter to reboot, or R to start over."),
+        ]
     } else {
         vec![Line::from("Press Enter or R to start over.")]
     };

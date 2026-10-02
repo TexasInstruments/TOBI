@@ -1,0 +1,75 @@
+From: TOBI Maintainers <tobi@example.invalid>
+Subject: [PATCH] spl: load TOBI MMC boot stages from the FAT filesystem
+
+TOBI writes complete partitioned SD images to the eMMC user data area.
+TI K3 board selectors otherwise choose hardware eMMC boot partitions and
+raw offsets for MMC0, even when the ROM used MMCSD filesystem boot.
+Enable an explicit TOBI filesystem boot policy in both SPL stages and
+select the eMMC user data area before reading the first FAT partition.
+The existing TI payload filenames, FIT verification, SD loading and all
+non-MMC boot paths are retained.
+
+For fixed-strap boards, this also permits a first-stage bootstrap in
+boot0 to load the remaining stages from the installed filesystem.
+Installing that first stage and configuring the ROM remain the flasher's
+responsibility.
+
+Upstream-Status: Inappropriate [TOBI image installation policy]
+
+diff --git a/common/spl/Kconfig b/common/spl/Kconfig
+--- a/common/spl/Kconfig
++++ b/common/spl/Kconfig
+@@ -921,6 +921,24 @@
+ 	  Enable MMC FS Boot mode. Partition is selected by option
+ 	  SYS_MMCSD_FS_BOOT_PARTITION.
+ 
++config SPL_TOBI_MMC_FS_BOOT
++	bool "TOBI SD and eMMC filesystem boot"
++	depends on ARCH_K3 && SPL_MMC
++	default y
++	select SYS_MMCSD_FS_BOOT
++	select SPL_FS_FAT
++	select SPL_LIBDISK_SUPPORT
++	help
++	  Load the next boot stage from the first FAT partition of an SD
++	  card or the eMMC user data area. TOBI installs partitioned disk
++	  images, so the board's eMMC raw-sector loader must not override
++	  filesystem loading. This applies to both the R5 and application
++	  processor SPL stages and does not change other boot media.
++
++	  The ROM must still be configured to load the first stage from
++	  the same filesystem, or have a first-stage bootstrap installed
++	  in the eMMC hardware boot partition for boards with fixed straps.
++
+ config SYS_MMCSD_FS_BOOT_PARTITION
+ 	int "MMC Boot Partition"
+ 	depends on SYS_MMCSD_FS_BOOT
+diff --git a/common/spl/spl_mmc.c b/common/spl/spl_mmc.c
+--- a/common/spl/spl_mmc.c
++++ b/common/spl/spl_mmc.c
+@@ -390,7 +390,23 @@
+ 		}
+ 	}
+ 
+-	boot_mode = spl_mmc_boot_mode(mmc, bootdev->boot_device);
++	if (IS_ENABLED(CONFIG_SPL_TOBI_MMC_FS_BOOT)) {
++		/* An eMMC bootstrap may leave a hardware boot partition selected. */
++		if (!IS_SD(mmc)) {
++			if (CONFIG_IS_ENABLED(MMC_TINY))
++				ret = mmc_switch_part(mmc, 0);
++			else
++				ret = blk_dselect_hwpart(mmc_get_blk_desc(mmc), 0);
++
++			if (ret) {
++				puts("spl: cannot select eMMC user data area\n");
++				return ret;
++			}
++		}
++		boot_mode = MMCSD_MODE_FS;
++	} else {
++		boot_mode = spl_mmc_boot_mode(mmc, bootdev->boot_device);
++	}
+ 	ret = -EINVAL;
+ 	switch (boot_mode) {
+ 	case MMCSD_MODE_EMMCBOOT:
+

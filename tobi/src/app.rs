@@ -328,7 +328,11 @@ impl App {
     }
 
     pub fn complete_auto_reboot_seconds(&self) -> Option<u64> {
-        if !self.can_reboot_after_complete() {
+        if !self.can_reboot_after_complete()
+            || self
+                .selected_target()
+                .is_some_and(|target| target.kind == TargetKind::Emmc)
+        {
             return None;
         }
 
@@ -844,9 +848,10 @@ impl App {
             source_current: Some(0),
             source_total: image.image_download_size,
         });
-        let reboot_after_install =
-            self.run_mode == RunMode::Live && target.kind != TargetKind::File;
+        let reboot_after_install = self.run_mode == RunMode::Live
+            && !matches!(target.kind, TargetKind::File | TargetKind::Emmc);
         self.install_rx = Some(start_install(InstallRequest {
+            board_id: self.board.id.clone(),
             image,
             target,
             run_mode: self.run_mode,
@@ -1589,6 +1594,26 @@ mod tests {
     }
 
     #[test]
+    fn emmc_completion_waits_for_manual_boot_configuration() {
+        let mut app = App::new(
+            catalog(),
+            board(),
+            targets(),
+            RunMode::Live,
+            true,
+            "../catalog.json".to_string(),
+            None,
+            None,
+        );
+        app.screen = Screen::Complete;
+        app.success_completed_at = Some(Instant::now() - Duration::from_secs(20));
+        assert!(app.can_reboot_after_complete());
+        assert_eq!(app.complete_auto_reboot_seconds(), None);
+        app.auto_reboot_if_due();
+        assert_eq!(app.screen, Screen::Complete);
+    }
+
+    #[test]
     fn live_complete_screen_counts_down_to_reboot() {
         let mut app = App::new(
             catalog(),
@@ -1600,6 +1625,7 @@ mod tests {
             None,
             None,
         );
+        app.devices[0].kind = TargetKind::Sd;
         app.screen = Screen::Complete;
         app.success_completed_at = Some(Instant::now());
         assert!(matches!(app.complete_auto_reboot_seconds(), Some(1..=10)));
