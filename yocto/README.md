@@ -27,7 +27,7 @@ Use Ubuntu 22.04 or TI's Yocto container for repeatable builds. On Apple silicon
 ## Layout
 
 ```text
-tobi/       Rust application repo candidate
+tobi/       Rust application
 meta-tobi/  Yocto layer
 yocto/      helper scripts and notes
 ```
@@ -46,7 +46,7 @@ bitbake-layers add-layer /absolute/path/to/meta-tobi
 The initramfs defaults to the public catalog hosted by the TOBI repository:
 
 ```text
-https://raw.githubusercontent.com/Grippy98/TOBI/master/tobi/sample/catalog.json
+https://raw.githubusercontent.com/TexasInstruments/TOBI/master/catalog.json
 ```
 
 Override it with `TOBI_MANIFEST_URL` in the initramfs environment, or with the kernel argument:
@@ -177,7 +177,7 @@ out/yocto/tobi-sd-image-<machine>.rootfs.wic.xz
 out/yocto/tobi-sd-image-<machine>.rootfs.wic.bmap
 ```
 
-The first successful SK-AM62P-LP build produced a 24 MiB compressed initramfs, 102 MiB uncompressed:
+Inspect the compressed and uncompressed initramfs sizes with:
 
 ```sh
 xz -l out/yocto/tobi-initramfs-am62pxx-evm.rootfs.cpio.xz
@@ -212,14 +212,6 @@ inherit tobi-recovery
 ```
 
 This only populates `IMAGE_BOOT_FILES`; ensure the WKS boot partition has room for the added kernel and initramfs. Do not enable it globally on secure production images until the recovery signing, rollback, and update policy is defined.
-
-## Next Integration Work
-
-1. Build a target `tobi` binary through a Yocto-native Rust recipe or through a cross-build job.
-2. Convert the three-file recovery payload to a signed FIT and define recovery update/rollback behavior.
-3. Generalize the tested BeaglePlay U-Boot menu media mappings to the remaining TI EVMs.
-4. Hardware-validate the U-Boot IT66121 EDID and 1280x720 fallback paths across several monitors.
-5. Add USB/SD automount handling before TOBI starts, so custom local images are visible.
 
 ## License
 

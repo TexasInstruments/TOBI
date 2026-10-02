@@ -1,9 +1,8 @@
-# TOBI Hardware Image Workspace
+# TOBI
 
 **TOBI** is the **TI Out of Box Installer** for Texas Instruments Sitara starter kit evaluation modules. It boots a small RAM-resident Linux environment, presents a terminal UI, downloads a selected OS image, streams/decompresses it directly to target media, and reboots into the installed image.
 
-The first hardware target was **SK-AM62P-LP** / Yocto machine `am62pxx-evm`.
-TOBI now carries board definitions and catalog entries for these starter kits and EVMs:
+TOBI supports these starter kits and EVMs:
 
 | Board | Yocto `MACHINE` | Catalog SDK |
 | --- | --- | --- |
@@ -24,15 +23,10 @@ The catalog also includes Armbian community downloads for supported boards that 
 ## Layout
 
 ```text
-tobi/       standalone Rust TUI application; can become its own git repo
-meta-tobi/  Yocto layer for packaging TOBI into a RAM installer image
-yocto/      build notes and helper scripts for TI Processor SDK Linux
-```
-
-The Rust app can be split out later with:
-
-```sh
-git subtree split --prefix=tobi -b tobi-app
+catalog.json  board definitions and downloadable-image catalog
+tobi/         standalone Rust TUI application
+meta-tobi/    Yocto layer for packaging TOBI into a RAM installer image
+yocto/        build notes and helper scripts for TI Processor SDK Linux
 ```
 
 ## Hosted Catalog
@@ -40,7 +34,7 @@ git subtree split --prefix=tobi -b tobi-app
 The public OS catalog is hosted from this GitHub repository:
 
 ```text
-https://raw.githubusercontent.com/Grippy98/TOBI/master/tobi/sample/catalog.json
+https://raw.githubusercontent.com/TexasInstruments/TOBI/master/catalog.json
 ```
 
 TOBI uses that URL by default. For local testing or private catalogs, pass another source:
@@ -85,29 +79,19 @@ Running TOBI with no arguments starts the production path: `--mode live` with wr
 
 ## Build With Docker
 
-The TUI app can be built and run in Docker:
+From the repository root, build and run the TUI app in Docker:
 
 ```sh
-cd tobi
-docker build -t tobi .
+docker build -f tobi/Dockerfile -t tobi .
 docker run --rm -it tobi
 ```
 
-For quick local UI testing from this workspace, use the helper script. It runs
-the app in mock mode, attaches it to your host terminal, and uses the same
-x86_64 Docker builder/cache used by the Yocto helper scripts:
+From the repository root, preview the UART interface using the local catalog:
 
 ```sh
-./scripts/run-tobi-local.sh tui
-./scripts/run-tobi-local.sh serial
-./scripts/run-tobi-local.sh tui --test-proxy-setup
+cargo run --manifest-path tobi/Cargo.toml -- \
+  --manifest catalog.json --mode mock --serial-ui
 ```
-
-The `tui` mode exercises the HDMI-style crossterm UI. The `serial` mode
-exercises the line-oriented UART UI that the initramfs starts with
-`--serial-ui`. The `--test-proxy-setup` flag simulates a board with DHCP and
-a valid local IP where the online catalog is unreachable, then opens the UTC
-time and proxy setup screen.
 
 On an x86_64 Linux host, build natively and let Yocto cross-compile the ARM image:
 
@@ -220,35 +204,3 @@ MACHINE=beagleplay-ti ./yocto/scripts/build-tobi-sd-image-ubuntu-x86_64.sh
 The layer carries a video-only IT66121 bridge port and extends TI's TIDSS driver to activate the AM625 DPI pipeline. U-Boot reads the monitor EDID and falls back to 1280x720 at 60 Hz when EDID is unavailable. It emits DVI-compatible TMDS video over the HDMI connector; HDMI audio, HDCP, and runtime hot-plug handling are out of scope. Output remains multiplexed to the UART, so a missing or unsupported display does not remove serial access. Linux uses its normal DRM/TIDSS and IT66121 drivers after boot.
 
 Directly chain-loading a second K3 `u-boot.img` is deliberately not part of this first version. On AM62x, ROM, `tiboot3.bin`, `tispl.bin`, TF-A/OP-TEE, and A53 U-Boot form a staged handoff, and a second U-Boot can depend on state supplied by the earlier stages. The supported path here is to let TOBI U-Boot boot the selected distro's normal OS configuration. Keeping a fully separate stock TI U-Boot should instead use a board-supported alternate boot source or bootloader slot and reboot into that chain.
-
-## Optional TOBI-lite AM62-SIP Test Image
-
-`SK-AM62-SIP` / `am62xxsip-evm` has 512 MiB of integrated LPDDR4. The normal
-all-board build and release matrix therefore use the regular TOBI image for
-this board. TI's AM6254ATL U-Boot and Linux device trees both describe the full
-512 MiB region at `0x80000000`.
-
-The branch retains **TOBI-lite** as an optional constrained-memory diagnostic
-target. It trims the kernel module set, enables RAM-only zram swap, and relaxes
-the `.wic.xz` memory guard for stress testing. It is not required for normal
-AM62-SIP operation and is not selected by the all-board build scripts.
-
-Build the TOBI-lite SD image with:
-
-```sh
-./yocto/scripts/build-tobi-lite-sd-image-ubuntu-x86_64.sh
-```
-
-On Apple silicon:
-
-```sh
-./yocto/scripts/build-tobi-lite-sd-image-ubuntu-arm64.sh
-```
-
-Expected copied artifacts use the `tobi-lite-*` basename, for example:
-
-```text
-out/yocto/tobi-lite-initramfs-am62xxsip-evm.rootfs.cpio.xz
-out/yocto/tobi-lite-sd-image-am62xxsip-evm.rootfs.wic.xz
-out/yocto/tobi-lite-sd-image-am62xxsip-evm.rootfs.wic.bmap
-```

@@ -18,11 +18,11 @@ docker run --rm \
   --user "$(id -u):$(id -g)" \
   -e CARGO_HOME=/cargo \
   -e CARGO_TARGET_DIR=/target \
-  -v "$REPO_ROOT/tobi:/workspace:ro" \
+  -v "$REPO_ROOT:/workspace:ro" \
   -v "$CACHE_DIR/cargo:/cargo" \
   -v "$CACHE_DIR/target:/target" \
   -v "$OUT_DIR:/out" \
-  -w /workspace \
+  -w /workspace/tobi \
   "$IMAGE" \
   sh -lc 'cargo test && cargo build --release && cp /target/release/tobi /out/tobi'
 

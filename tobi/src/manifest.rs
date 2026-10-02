@@ -274,8 +274,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_sample_catalog() {
-        let catalog = load_catalog("sample/catalog.json").expect("sample catalog should parse");
+    fn parses_catalog() {
+        let source = concat!(env!("CARGO_MANIFEST_DIR"), "/../catalog.json");
+        let catalog = load_catalog(source).expect("catalog should parse");
         assert_eq!(catalog.schema_version, 1);
         assert!(
             catalog

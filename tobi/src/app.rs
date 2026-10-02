@@ -14,7 +14,7 @@ use crate::custom_image::{
 use crate::device::{DeviceMode, InstallTarget, TargetKind, list_devices};
 use crate::installer::{InstallEvent, InstallRequest, RunMode, reboot_now, start_install};
 use crate::manifest::{self, Catalog, ImageEntry};
-use crate::memory::{MemoryCheck, check_image_memory, set_lite_xz_memory_guard};
+use crate::memory::{MemoryCheck, check_image_memory};
 
 pub const TI_PROXY_URL: &str = "http://webproxy.ext.ti.com:80";
 
@@ -90,7 +90,6 @@ pub struct App {
     custom_images: Vec<CustomImage>,
     run_mode: RunMode,
     allow_write: bool,
-    lite_mode: bool,
     manifest_source: String,
     proxy_url: Option<String>,
     proxy_input: String,
@@ -143,7 +142,6 @@ impl App {
             custom_images: Vec::new(),
             run_mode,
             allow_write,
-            lite_mode: false,
             manifest_source,
             proxy_input: proxy_url.clone().unwrap_or_default(),
             proxy_time_input: current_utc_datetime_input(),
@@ -188,18 +186,6 @@ impl App {
 
     pub fn run_mode(&self) -> RunMode {
         self.run_mode
-    }
-
-    pub fn set_lite_mode(&mut self, lite_mode: bool) {
-        self.lite_mode = lite_mode;
-        set_lite_xz_memory_guard(lite_mode);
-        if lite_mode {
-            self.status = "TOBI-lite installer ready. Press Enter to continue.".to_string();
-        }
-    }
-
-    pub fn lite_mode(&self) -> bool {
-        self.lite_mode
     }
 
     pub fn screen(&self) -> Screen {
@@ -791,7 +777,7 @@ impl App {
     }
 
     pub fn tick_runner(&mut self) {
-        if self.screen == Screen::Installing && !self.lite_mode {
+        if self.screen == Screen::Installing {
             self.runner.tick();
         }
     }
@@ -1426,7 +1412,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1441,7 +1427,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1457,7 +1443,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1474,7 +1460,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1489,7 +1475,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1512,7 +1498,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1559,7 +1545,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1581,7 +1567,7 @@ mod tests {
             targets(),
             RunMode::Live,
             true,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1594,7 +1580,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1610,7 +1596,7 @@ mod tests {
             targets(),
             RunMode::Live,
             true,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1666,7 +1652,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             Some("http://proxy.example.com:8080".to_string()),
             None,
         );
@@ -1687,7 +1673,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1709,7 +1695,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1732,7 +1718,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );
@@ -1754,7 +1740,7 @@ mod tests {
             targets(),
             RunMode::Mock,
             false,
-            "sample/catalog.json".to_string(),
+            "../catalog.json".to_string(),
             None,
             None,
         );

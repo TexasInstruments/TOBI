@@ -627,32 +627,12 @@ fn render_installing(frame: &mut Frame, app: &App, area: Rect) {
         inner[1],
     );
 
-    if app.lite_mode() {
-        frame.render_widget(
-            Paragraph::new(vec![
-                Line::from(Span::styled(
-                    "TOBI-lite compact install display",
-                    Style::default().fg(TI_TEAL).add_modifier(Modifier::BOLD),
-                )),
-                Line::from(""),
-                Line::from("Memory snapshots are written to /run/tobi-memory.log."),
-                Line::from("Serial handoff remains available from ttyS2 with SERIAL."),
-            ])
-            .block(panel_block(" Low Memory ")),
-            inner[2],
-        );
-    } else {
-        render_runner_game(frame, app, inner[2]);
-    }
+    render_runner_game(frame, app, inner[2]);
 
     frame.render_widget(
-        Paragraph::new(if app.lite_mode() {
-            "Do not power off the board during a live install."
-        } else {
-            "Do not power off the board during a live install. Space/Up jumps."
-        })
-        .alignment(Alignment::Center)
-        .wrap(Wrap { trim: false }),
+        Paragraph::new("Do not power off the board during a live install. Space/Up jumps.")
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: false }),
         inner[3],
     );
 }

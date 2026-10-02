@@ -20,11 +20,11 @@ docker run --rm \
   -e CARGO_TARGET_DIR=/target \
   -e CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
   -e CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-  -v "$REPO_ROOT/tobi:/workspace:ro" \
+  -v "$REPO_ROOT:/workspace:ro" \
   -v "$CACHE_DIR/cargo:/cargo" \
   -v "$CACHE_DIR/target:/target" \
   -v "$OUT_DIR:/out" \
-  -w /workspace \
+  -w /workspace/tobi \
   "$IMAGE" \
   sh -lc "cargo test && cargo build --release --target '$TARGET' && cp \"/target/$TARGET/release/tobi\" /out/tobi"
 

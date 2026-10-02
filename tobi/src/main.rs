@@ -30,7 +30,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 const DEFAULT_MANIFEST_URL: &str =
-    "https://raw.githubusercontent.com/Grippy98/TOBI/master/tobi/sample/catalog.json";
+    "https://raw.githubusercontent.com/TexasInstruments/TOBI/master/catalog.json";
 
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
@@ -58,9 +58,6 @@ struct Args {
 
     #[arg(long)]
     serial_ui: bool,
-
-    #[arg(long)]
-    lite: bool,
 
     #[arg(long)]
     test_proxy_setup: bool,
@@ -107,9 +104,6 @@ fn main() -> anyhow::Result<()> {
         args.proxy,
         warning,
     );
-    if args.lite {
-        app.set_lite_mode(true);
-    }
     if test_proxy_setup {
         app.start_proxy_setup_test(proxy_setup_test_warning());
     }
@@ -178,13 +172,6 @@ mod tests {
         let args = Args::parse_from(["tobi", "--mode", "mock", "--test-proxy-setup"]);
         assert_eq!(args.mode, CliRunMode::Mock);
         assert!(args.test_proxy_setup);
-    }
-
-    #[test]
-    fn lite_mode_is_available_for_low_memory_images() {
-        let args = Args::parse_from(["tobi", "--mode", "mock", "--lite"]);
-        assert_eq!(args.mode, CliRunMode::Mock);
-        assert!(args.lite);
     }
 }
 

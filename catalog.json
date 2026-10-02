@@ -395,11 +395,11 @@
       "version": "dev-6eb0663",
       "release_date": "2026-08-05",
       "channel": "prerelease",
-      "url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62pxx-evm.rootfs.wic.xz",
+      "url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62pxx-evm.rootfs.wic.xz",
       "format": "wic.xz",
       "image_download_sha256": "2c0dac3022c38437912b2d93164620f571492785412d51bda85a38b0b88318d3",
       "image_download_size": 35074316,
-      "bmap_url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62pxx-evm.rootfs.wic.bmap"
+      "bmap_url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62pxx-evm.rootfs.wic.bmap"
     },
     {
       "id": "tobi-flasher-am62xx-evm-dev-6eb0663",
@@ -411,11 +411,11 @@
       "version": "dev-6eb0663",
       "release_date": "2026-08-05",
       "channel": "prerelease",
-      "url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62xx-evm.rootfs.wic.xz",
+      "url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62xx-evm.rootfs.wic.xz",
       "format": "wic.xz",
       "image_download_sha256": "a08db4e5052fac9fd47f948b0537570a4527a92c2e57fee5fa3eacc0fe690448",
       "image_download_size": 34949048,
-      "bmap_url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62xx-evm.rootfs.wic.bmap"
+      "bmap_url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62xx-evm.rootfs.wic.bmap"
     },
     {
       "id": "tobi-flasher-am62xx-lp-evm-dev-6eb0663",
@@ -427,11 +427,11 @@
       "version": "dev-6eb0663",
       "release_date": "2026-08-05",
       "channel": "prerelease",
-      "url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62xx-lp-evm.rootfs.wic.xz",
+      "url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62xx-lp-evm.rootfs.wic.xz",
       "format": "wic.xz",
       "image_download_sha256": "65b1f440186c9f2dbecb238ad47a7c237bee97f5a15b012168e6541dd19f24f5",
       "image_download_size": 34949776,
-      "bmap_url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62xx-lp-evm.rootfs.wic.bmap"
+      "bmap_url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62xx-lp-evm.rootfs.wic.bmap"
     },
     {
       "id": "tobi-flasher-am62xxsip-evm-dev-6eb0663",
@@ -443,11 +443,11 @@
       "version": "dev-6eb0663",
       "release_date": "2026-08-05",
       "channel": "prerelease",
-      "url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62xxsip-evm.rootfs.wic.xz",
+      "url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62xxsip-evm.rootfs.wic.xz",
       "format": "wic.xz",
       "image_download_sha256": "d5ba1601320f9458c6ed2f897ffa851879ed8d8660e37f159e88e2720776cc58",
       "image_download_size": 34960036,
-      "bmap_url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62xxsip-evm.rootfs.wic.bmap"
+      "bmap_url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62xxsip-evm.rootfs.wic.bmap"
     },
     {
       "id": "tobi-flasher-beagleplay-ti-dev-6eb0663",
@@ -459,11 +459,11 @@
       "version": "dev-6eb0663",
       "release_date": "2026-08-05",
       "channel": "prerelease",
-      "url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-beagleplay-ti.rootfs.wic.xz",
+      "url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-beagleplay-ti.rootfs.wic.xz",
       "format": "wic.xz",
       "image_download_sha256": "82f1c28079228fe5753c88b95e480bd52a27304465e8995a9d38bb82d64dd660",
       "image_download_size": 34470376,
-      "bmap_url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-beagleplay-ti.rootfs.wic.bmap"
+      "bmap_url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-beagleplay-ti.rootfs.wic.bmap"
     },
     {
       "id": "tobi-flasher-am62axx-evm-dev-6eb0663",
@@ -475,11 +475,11 @@
       "version": "dev-6eb0663",
       "release_date": "2026-08-05",
       "channel": "prerelease",
-      "url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62axx-evm.rootfs.wic.xz",
+      "url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62axx-evm.rootfs.wic.xz",
       "format": "wic.xz",
       "image_download_sha256": "97fb930b853651690f84c98bc22595c2dd7ab15167d34cbea5ec3dece5ed98a3",
       "image_download_size": 52878928,
-      "bmap_url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62axx-evm.rootfs.wic.bmap"
+      "bmap_url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62axx-evm.rootfs.wic.bmap"
     },
     {
       "id": "tobi-flasher-am62lxx-evm-dev-6eb0663",
@@ -491,11 +491,11 @@
       "version": "dev-6eb0663",
       "release_date": "2026-08-05",
       "channel": "prerelease",
-      "url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62lxx-evm.rootfs.wic.xz",
+      "url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62lxx-evm.rootfs.wic.xz",
       "format": "wic.xz",
       "image_download_sha256": "b0afb49b65b4c22e87dba76255730ed7c423eda04e27d2d92bd32cb048e85e7b",
       "image_download_size": 34591020,
-      "bmap_url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62lxx-evm.rootfs.wic.bmap"
+      "bmap_url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am62lxx-evm.rootfs.wic.bmap"
     },
     {
       "id": "tobi-flasher-am64xx-evm-dev-6eb0663",
@@ -507,11 +507,11 @@
       "version": "dev-6eb0663",
       "release_date": "2026-08-05",
       "channel": "prerelease",
-      "url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am64xx-evm.rootfs.wic.xz",
+      "url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am64xx-evm.rootfs.wic.xz",
       "format": "wic.xz",
       "image_download_sha256": "c7cc7de31879c59b8b2ba46aa6c8cda8193f810d6bba09ecbae85a6129f51b07",
       "image_download_size": 35208416,
-      "bmap_url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am64xx-evm.rootfs.wic.bmap"
+      "bmap_url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am64xx-evm.rootfs.wic.bmap"
     },
     {
       "id": "tobi-flasher-am68-sk-dev-6eb0663",
@@ -523,11 +523,11 @@
       "version": "dev-6eb0663",
       "release_date": "2026-08-05",
       "channel": "prerelease",
-      "url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am68-sk.rootfs.wic.xz",
+      "url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am68-sk.rootfs.wic.xz",
       "format": "wic.xz",
       "image_download_sha256": "4d27016b61909054472ca10992f82fad74184acea97a464a39c37bed80acb78d",
       "image_download_size": 34957488,
-      "bmap_url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am68-sk.rootfs.wic.bmap"
+      "bmap_url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am68-sk.rootfs.wic.bmap"
     },
     {
       "id": "tobi-flasher-am69-sk-dev-6eb0663",
@@ -539,11 +539,11 @@
       "version": "dev-6eb0663",
       "release_date": "2026-08-05",
       "channel": "prerelease",
-      "url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am69-sk.rootfs.wic.xz",
+      "url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am69-sk.rootfs.wic.xz",
       "format": "wic.xz",
       "image_download_sha256": "a969dab3ee7a547441e4e5020604fbfe91464ede366ac30bffa8361243d0305f",
       "image_download_size": 34917076,
-      "bmap_url": "https://github.com/Grippy98/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am69-sk.rootfs.wic.bmap"
+      "bmap_url": "https://github.com/TexasInstruments/TOBI/releases/download/dev-6eb0663/tobi-sd-image-am69-sk.rootfs.wic.bmap"
     },
     {
       "id": "armbian-trixie-minimal-sk-am62p-lp-26.5.1",

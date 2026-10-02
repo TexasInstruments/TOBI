@@ -70,7 +70,6 @@ docker run --rm \
     ./yocto/scripts/bootstrap-tobi-yocto.sh "$BITBAKE_TARGET"
     find "$TISDK_DIR/build" -path "*deploy*images*" \
       \( -name "tobi-sd-image*.wic.xz" -o -name "tobi-sd-image*.wic.bmap" \
-         -o -name "tobi-lite-sd-image*.wic.xz" -o -name "tobi-lite-sd-image*.wic.bmap" \
-         -o -name "tobi-initramfs*.cpio.xz" -o -name "tobi-lite-initramfs*.cpio.xz" \) \
+         -o -name "tobi-initramfs*.cpio.xz" \) \
       -exec cp -f {} /workspace/out/yocto/ \;
   '
