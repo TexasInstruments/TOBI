@@ -187,6 +187,8 @@ The SD image is user-flashable. It boots TOBI into RAM and leaves the target eMM
 
 When flashing to eMMC, TOBI runs a post-flash boot patcher before reboot. It mounts the installed boot partition, updates `uEnv.txt` for recognized TI Yocto, TI Debian, and Armbian layouts so U-Boot selects the eMMC MMC index and rootfs partition, and adds an `extlinux/extlinux.conf` eMMC bootflow fallback for Armbian-style images whose built-in U-Boot environment starts on SD. When installing a TOBI image, it preserves the `/recovery` kernel, initramfs, DTB paths, and TOBI boot arguments while selecting eMMC. The TUI shows this as an explicit install phase, and the success popup includes the patch result and changed boot settings.
 
+TOBI's TI U-Boot environment keeps SD preferred while it is present, but selects eMMC before importing the first FAT partition's `uEnv.txt` when SD cannot be rescanned, allowing the installed TOBI recovery configuration to be found with the SD card removed.
+
 ## BeaglePlay U-Boot Menu And Recovery Bundle
 
 The Yocto layer patches TI U-Boot 2026.01 for `MACHINE=beagleplay-ti` with a

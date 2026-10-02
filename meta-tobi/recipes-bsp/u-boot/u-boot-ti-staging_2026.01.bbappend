@@ -1,6 +1,9 @@
 FILESEXTRAPATHS:prepend := "${THISDIR}/${PN}:"
 
-SRC_URI:append = " file://0003-spl-tobi-boot-mmc-from-filesystem.patch"
+SRC_URI:append = " \
+    file://0003-spl-tobi-boot-mmc-from-filesystem.patch \
+    file://0004-env-find-tobi-emmc-without-sd.patch \
+"
 
 # Start with BeaglePlay while the menu and media mappings are hardware-tested.
 SRC_URI:append:beagleplay-ti = " \

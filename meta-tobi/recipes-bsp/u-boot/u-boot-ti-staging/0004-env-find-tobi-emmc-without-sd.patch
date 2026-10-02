@@ -1,0 +1,50 @@
+From: TOBI Maintainers <tobi@example.invalid>
+Subject: [PATCH] env: find the TOBI eMMC environment when SD is absent
+
+TI's default main U-Boot environment searches for uEnv.txt on mmc1,
+regardless of which medium booted the ROM and SPL. TOBI stores its
+recovery commands in the first FAT partition, so bootflow's subsequent
+mmc0 scan cannot substitute for importing this file.
+
+When the preferred mmc1 cannot rescan, select mmc0 before running the
+existing environment import and boot commands. Keep mmc1 preferred when
+SD is present, and do not redirect an explicitly selected mmc0. The
+BeaglePlay menu checks availability before running envboot, preserving
+its explicit SD and eMMC choices. Select software partition 1 explicitly
+when loading TOBI's uEnv.txt.
+
+Upstream-Status: Inappropriate [TOBI recovery image boot policy]
+
+diff --git a/include/env/ti/mmc.env b/include/env/ti/mmc.env
+--- a/include/env/ti/mmc.env
++++ b/include/env/ti/mmc.env
+@@ -13,11 +13,27 @@
+ bootenvfile=uEnv.txt
+ importbootenv=echo Importing environment from mmc${mmcdev} ...;
+ 	env import -t ${loadaddr} ${filesize}
++#ifdef CONFIG_SPL_TOBI_MMC_FS_BOOT
++loadbootenv=fatload mmc ${mmcdev}:1 ${loadaddr} ${bootenvfile}
++#else
+ loadbootenv=fatload mmc ${mmcdev} ${loadaddr} ${bootenvfile}
++#endif
+ loadimage=load ${devtype} ${bootpart} ${loadaddr} ${bootdir}/${bootfile}
+ loadfdt=load ${devtype} ${bootpart} ${fdtaddr} ${bootdir}/dtb/${fdtfile}
+ get_fdt_mmc=load mmc ${bootpart} ${fdtaddr} ${bootdir}/dtb/${fdtfile}
+-envboot=if mmc dev ${mmcdev}; then
++envboot=
++#ifdef CONFIG_SPL_TOBI_MMC_FS_BOOT
++	if test "${mmcdev}" = "1"; then
++		if mmc dev 1 && mmc rescan; then
++			setenv mmcdev 1;
++		else
++			echo SD card unavailable, checking eMMC boot environment...;
++			setenv mmcdev 0;
++			setenv bootpart 0:2;
++		fi;
++	fi;
++#endif
++	if mmc dev ${mmcdev}; then
+ 	if mmc rescan; then
+ 		echo SD/MMC found on device ${mmcdev};
+ 		if test -n "${loadbootscript}" && run loadbootscript; then
+
