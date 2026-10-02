@@ -1,6 +1,8 @@
 # Board boot guides
 
-`boot-guide.json` is the shared source for the instructions embedded in TOBI and the static website. It covers every board in the root catalog, including boards without onboard eMMC. Keep switch values in **printed switch-number order**, and record the corresponding BOOTMODE signal, source manual, and review date. Diagrams are original SVG illustrations generated from the same values; they are not board photographs.
+`boot-guide.json` is the shared source for the instructions embedded in TOBI and the static website. It covers every board in the root catalog, including boards without onboard eMMC. Keep switch values in **printed switch-number order**, and record the corresponding BOOTMODE signal, source manual, and review date. The website's centered SVG diagrams use **zero-based BOOTMODE bit numbers**: 0–7 for the low bank and 8–15 for the high bank, including split banks. SK-AM69 uses selector indices 0–2. Tables also show the corresponding physical switch numbers printed on the board, starting at 1; the installation steps use those printed numbers.
+
+`board-photos.json` records official TI board photos and their product-page sources. The website displays the top-view photos directly from TI.com, with a credit and product link on each guide. They require network access. This metadata and the diagram presentation are website-only; editing them does not require rebuilding the application or board images.
 
 Build and preview with Python 3; no third-party packages are required:
 

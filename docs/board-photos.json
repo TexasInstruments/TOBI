@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "source": "Texas Instruments",
+  "verified_on": "2026-10-02",
+  "boards": {
+    "sk-am62p-lp": {
+      "image_url": "https://www.ti.com/content/dam/ticom/images/products/ic/processors/evm-boards/sk-am62p-lp-top.png",
+      "source_url": "https://www.ti.com/tool/SK-AM62P-LP",
+      "alt": "SK-AM62P-LP - AM62P starter kit evaluation module (top board image)"
+    },
+    "sk-am62-lp": {
+      "image_url": "https://www.ti.com/content/dam/ticom/images/products/ic/processors/evm-boards/sk-am62-lp-top.png",
+      "source_url": "https://www.ti.com/tool/SK-AM62-LP",
+      "alt": "SK-AM62-LP - AM62x starter kit for low-power Sitara™ processors (top board image)"
+    },
+    "sk-am62-sip": {
+      "image_url": "https://www.ti.com/content/dam/ticom/images/products/ic/processors/evm-boards/sk-am62-sip-top.png",
+      "source_url": "https://www.ti.com/tool/SK-AM62-SIP",
+      "alt": "SK-AM62-SIP - AM62x system-in-package starter kit for Sitara™ processors (top board image)"
+    },
+    "sk-am62b": {
+      "image_url": "https://www.ti.com/content/dam/ticom/images/products/ic/processors/evm-boards/sk-am62b-top.png",
+      "source_url": "https://www.ti.com/tool/SK-AM62B",
+      "alt": "SK-AM62B - AM62B Starter Kit EVM for Sitara™ AM62x processor (top board image)"
+    },
+    "sk-am62a-lp": {
+      "image_url": "https://www.ti.com/content/dam/ticom/images/products/ic/processors/evm-boards/sk-am62a-lp-top.png",
+      "source_url": "https://www.ti.com/tool/SK-AM62A-LP",
+      "alt": "SK-AM62A-LP - AM62A starter kit for low-power Sitara™ processors (top board image)"
+    },
+    "tmds62levm": {
+      "image_url": "https://www.ti.com/content/dam/ticom/images/products/ic/processors/evm-boards/tmds62levm-top.png",
+      "source_url": "https://www.ti.com/tool/TMDS62LEVM",
+      "alt": "TMDS62LEVM top"
+    },
+    "sk-am64b": {
+      "image_url": "https://www.ti.com/content/dam/ticom/images/products/ic/processors/evm-boards/sk-am64b-top.png",
+      "source_url": "https://www.ti.com/tool/SK-AM64B",
+      "alt": "SK-AM64B - AM64B starter kit for AM64x Sitara™ processors (top board image)"
+    },
+    "tmds64evm": {
+      "image_url": "https://www.ti.com/content/dam/ticom/images/products/ic/processors/evm-boards/tmds64evm-top.png",
+      "source_url": "https://www.ti.com/tool/TMDS64EVM",
+      "alt": "TMDS64EVM - AM64x evaluation module for Sitara™ processors (top board image)"
+    },
+    "sk-am68": {
+      "image_url": "https://www.ti.com/content/dam/ticom/images/products/ic/processors/evm-boards/sk-am68-top.png",
+      "source_url": "https://www.ti.com/tool/SK-AM68",
+      "alt": "SK-AM68 - AM68x starter kit for Sitara™ processors (top board image)"
+    },
+    "sk-am69": {
+      "image_url": "https://www.ti.com/content/dam/ticom/images/products/ic/processors/evm-boards/sk-am69-top.png",
+      "source_url": "https://www.ti.com/tool/SK-AM69",
+      "alt": "SK-AM69 - AM69x starter kit for Sitara™ processors (top board image)"
+    },
+    "beagleplay": {
+      "image_url": "https://www.ti.com/content/dam/ticom/images/products/ic/processors/evm-boards/beagl-play-sbc-top.png",
+      "source_url": "https://www.ti.com/tool/BEAGL-PLAY-SBC",
+      "alt": "BEAGL-PLAY-SBC - BeaglePlay® single-board computer from the BeagleBoard.org foundation based on AM62x (top board image)"
+    }
+  }
+}
