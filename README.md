@@ -22,9 +22,9 @@ The catalog also includes Armbian community downloads for supported boards that 
 
 ## Install From A Release Image
 
-Download the image for your board from [TOBI 2026.10.2 revision 2](https://github.com/TexasInstruments/TOBI/releases/tag/v2026.10.2-r2). This release uses tag `v2026.10.2-r2` and filenames such as `TOBI-2026.10.2-SK-AM62P-LP.img.xz` and `TOBI-2026.10.2-BeaglePlay.img.xz`; the board names match the table above. Download `SHA256SUMS` as well and verify the image checksum before writing it. The release contains the eleven board images and that checksum file.
+Download the image for your board from [TOBI 2026.10.5](https://github.com/TexasInstruments/TOBI/releases/tag/v2026.10.5). This release uses tag `v2026.10.5` and filenames such as `TOBI-2026.10.5-SK-AM62P-LP.img.xz` and `TOBI-2026.10.5-BeaglePlay.img.xz`; the board names match the table above. Download `SHA256SUMS` as well and verify the image checksum before writing it. The release contains the eleven board images and that checksum file.
 
-Revision 2 adds automatic-update prompts, illustrated boot guides, post-flash QR codes, and SK-AM69 Boot0 preparation. Its app version remains `2026.10.2`; the original `v2026.10.2` release predates these changes. Install revision 2 from SD to acquire these features on a board running an older TOBI binary.
+`2026.10.5` is a version bump for testing automatic updates from `v2026.10.2-r2`. After Welcome and proxy configuration, TOBI offers Install or Skip before the OS list. Install updates the verified current boot media and requires a manual reboot; Skip opens the OS list. Automatic updates, illustrated boot guides, post-flash QR codes, and SK-AM69 Boot0 preparation first appeared in revision 2. The original `v2026.10.2` release predates those features and needs a manual SD update.
 
 Write the image to a microSD card with an image-writing tool, select the board's SD boot mode, and power on with a debug UART connected. TOBI runs from RAM; select an OS and the target eMMC, then confirm the installation.
 

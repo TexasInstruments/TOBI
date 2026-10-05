@@ -74,7 +74,7 @@ MACHINE=am62pxx-evm bitbake tobi-initramfs
 
 Set `MACHINE` to any entry from the board matrix to build that board's initramfs or SD-card image.
 
-The matrix has eleven boards and ten machine builds because SK-AM64B and TMDS64EVM share `am64xx-evm`. Build outputs retain Yocto machine filenames; release `2026.10.2` uses `TOBI-2026.10.2-<BOARD>.img.xz` with the board spelling shown in the matrix. Publish both AM64x board labels from the shared machine output. The `v2026.10.2` release assets contain only those eleven compressed disk images and `SHA256SUMS`; initramfs, standalone binaries, and bmaps remain build outputs.
+The matrix has eleven boards and ten machine builds because SK-AM64B and TMDS64EVM share `am64xx-evm`. Build outputs retain Yocto machine filenames; release `2026.10.5` uses `TOBI-2026.10.5-<BOARD>.img.xz` with the board spelling shown in the matrix. Publish both AM64x board labels from the shared machine output. The `v2026.10.5` release assets contain only those eleven compressed disk images and `SHA256SUMS`; initramfs, standalone binaries, and bmaps remain build outputs.
 
 On x86_64 Linux hosts, the recommended Docker flow keeps BitBake native to the host and only cross-compiles the standalone `tobi` app to AArch64:
 
